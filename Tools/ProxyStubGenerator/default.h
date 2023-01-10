@@ -47,8 +47,12 @@ namespace WPEFramework {
 
   namespace Core {
     typedef __stubgen_integer instance_id;
-    
-    class IUnknown;
+
+    struct IUnknown {
+      enum {
+        ID_OFFSET_INTERNAL = 0
+      };
+    };
   }
 
   namespace PluginHost {
