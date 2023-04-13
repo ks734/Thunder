@@ -196,99 +196,67 @@ namespace Core {
                 }
                 return (designator.substr(pos == string::npos ? 0 : pos + 1));
             }
-            static uint8_t TryGetVersion(const string& designator, string::size_type pos) {
-                // note: invalid version string will not be detected (> 254) as it is abuse, digits part of a methodname/callsign
-                // bigger will (but not to detect them as names consisting of only digits, see what is not allowed above)
-                uint8_t result = 0;
-                uint8_t multiplier = 1; // probably cheaper then using pow(10, (startpos-pos))
-
-                while ((isdigit(designator[pos]))) {
-                    result += ((designator[pos] - '0') * multiplier);
-                    if (pos-- == 0) {
-                        pos = string::npos;
-                        break;
-                    }
-                    multiplier *= 10;
-                }
-
-                return ((pos == string::npos) || (designator[pos] == '.') ? result : ~0);
-            }
-            static uint8_t Version(const string& designator, const bool fulldesignator = false)
+            static uint8_t Version(const string& designator)
             {
-                uint8_t result = ~0;
-                string::size_type pos = designator.find_last_of('@');
-                // optimization, no need to parse behind index. Biggest chance index would be a full number so parsing back to
-                // find out when hitting @ it is not the version would be useless
+                uint16_t base = 1;
+                uint16_t result = 0;
 
-                if ((pos == string::npos) && (fulldesignator == false)) { // when not found and no fulldesignator version can be at the end
-                    pos = designator.size();
-                    pos = ((pos > 1) && (designator[pos - 1] == '.') ? pos - 1 : pos); // this line caters for a possible '.' as last character,
-                                                                                    // can be removed probably
-                    if (pos-- > 2) { // smallest possible valid string would be "1.a" or "b.1" (a methodname, 1 version, b callsign), -- to set pos
-                                     // at last char (note not --pos > 1  to cater for pos == 0)
-                        result = TryGetVersion(designator, pos);
-                        // if no match at the end of the designator, then only one possibilty remains it is before the '.' before the current
-                        // position, will be picked up below
-                    }
+                // Optimization, no need to parse behind index, all behind the @ is index, before is the method!
+                size_t length = designator.find_last_of('@');
+
+                // Whether we found the indexer or not, looking from the back (or @) for the first dot we find is 
+                // the beginning of the method marker. Before that dot *must* be the version (if applicable).
+                length = designator.find_last_of('.', length);
+
+                // If we did not find a dot, in the previous run, the length available for the version == 0.
+                length = (length == string::npos ? 0 : length);
+
+                // Now by definition we dropped off the method name. We got a "clean" designator without the method
+                // name (before length) and the last character can be found @length. So time to check version..
+                while ((length > 0) && (isdigit(designator[--length])) && (base <= 100)) {
+                    result += ((designator[length] - '0') * base);
+                    base *= 10;
                 }
 
-                if ((fulldesignator == true) || ((pos != string::npos) && (pos > 1) && (result == static_cast<uint8_t>(~0))))
-                {
-                    // 1) we have an index then we must also have a full designator. Then version (if avaialble) must be before the previous '.'
-                    //    and that is the only possible option, otherwise it is not there and we found the callsign
-                    // 2) we could not find the version at the end of the designator, search before the . before that
-                    pos = designator.find_last_of('.', pos); // if pos == npos (could be in case of fulldesignator) then will search from the end as it should
-                    if ((pos != string::npos) && (pos > 0)) {
-                        result = TryGetVersion(designator, --pos);
-                    }
-                }
-
-                return result;
+                // Now do the math, check if the version we calculated is valid..
+                return ( (base > 1) && (result < 0xFF) && ((length == 0) || (designator[length] == '.')) ? static_cast<uint8_t>(result) : ~0);
             }
-            static string TryGetVersionAsString(const string& designator, string::size_type pos) {
-                string result;
-
-                while ((isdigit(designator[pos]))) {
-                    result.insert(0, 1, designator[pos]);
-                    if (pos-- == 0) {
-                        pos = string::npos;
-                        break;
-                    }
-                }
-
-                return result;
-            }
-            static string VersionAsString(const string& designator, const bool fulldesignator = false)
+            static string VersionAsString(const string& designator)
             {
-                string result;
-                string::size_type pos = designator.find_last_of('@');
-                // optimization, no need to parse behind index. Biggest chance index would be a full number so parsing back to
-                // find out when hitting @ it is not the version would be useless
+                string textResult;
+                uint8_t count = 0;
+                uint16_t base = 1;
+                uint16_t result = 0;
 
-                if ((pos == string::npos) && (fulldesignator == false)) { // when not found and no fulldesignator version can be at the end
-                    pos = designator.size();
-                    pos = ((pos > 1) && (designator[pos - 1] == '.') ? pos - 1 : pos); // this line caters for a possible '.' as last character,
-                    // can be removed probably
-                    if (pos-- > 2) { // smallest possible valid string would be "1.a" or "b.1" (a methodname, 1 version, b callsign), -- to set pos
-                        // at last char (note not --pos > 1  to cater for pos == 0)
-                        result = TryGetVersion(designator, pos);
-                        // if no match at the end of the designator, then only one possibilty remains it is before the '.' before the current
-                        // position, will be picked up below
+                // Optimization, no need to parse behind index, all behind the @ is index, before is the method!
+                size_t length = designator.find_last_of('@');
+
+                // Whether we found the indexer or not, looking from the back (or @) for the first dot we find is 
+                // the beginning of the method marker. Before that dot *must* be the version (if applicable).
+                length = designator.find_last_of('.', length);
+
+                // If we did not find a dot, in the previous run, the length available for the version == 0.
+                length = (length == string::npos ? 0 : length);
+
+                // Now by definition we dropped off the method name. We got a "clean" designator without the method
+                // name (before length) and the last character can be found @length. So time to check version..
+                while ((length > 0) && (isdigit(designator[--length])) && (base <= 100)) {
+                    result += ((designator[length] - '0') * base);
+                    base *= 10;
+                    count++;
+                }
+
+                // Now do the math, check if the version we calculated is valid..
+                if ((base > 1) && (result < 0xFF)) {
+                    if (length == 0) {
+                        textResult = designator.substr(0, count);
+                    }
+                    else if (designator[length] == '.') {
+                        textResult = designator.substr(length + 1, count);
                     }
                 }
 
-                if ((fulldesignator == true) || ((pos != string::npos) && (pos > 1) && (result.empty() == true)))
-                {
-                    // 1) we have an index then we must also have a full designator. Then version (if avaialble) must be before the previous '.'
-                    //    and that is the only possible option, otherwise it is not there and we found the callsign
-                    // 2) we could not find the version at the end of the designator, search before the . before that
-                    pos = designator.find_last_of('.', pos); // if pos == npos (could be in case of fulldesignator) then will search from the end as it should
-                    if ((pos != string::npos) && (pos > 0)) {
-                        result = TryGetVersion(designator, --pos);
-                    }
-                }
-
-                return result;
+                return (textResult);
             }
             static string Index(const string& designator)
             {
@@ -495,47 +463,7 @@ namespace Core {
                 Functions _info;
             };
 
-            class Observer {
-            private:
-                Observer(const Observer&) = delete;
-                Observer& operator=(const Observer&) = delete;
-
-            public:
-                Observer(const uint32_t id, const string& designator)
-                    : _id(id)
-                    , _designator(designator)
-                {
-                }
-                ~Observer()
-                {
-                }
-
-                bool operator==(const Observer& rhs) const
-                {
-                    return ((rhs._id == _id) && (rhs._designator == _designator));
-                }
-                bool operator!=(const Observer& rhs) const
-                {
-                    return (!operator==(rhs));
-                }
-
-                uint32_t Id() const
-                {
-                    return (_id);
-                }
-                const string& Designator() const
-                {
-                    return (_designator);
-                }
-
-            private:
-                uint32_t _id;
-                string _designator;
-            };
-
-            typedef std::map<const string, Entry> HandlerMap;
-            typedef std::list<Observer> ObserverList;
-            typedef std::map<string, ObserverList> ObserverMap;
+            using HandlerMap = std::unordered_map<string, Entry>;
 
             typedef std::function<void(const uint32_t id, const string& designator, const string& data)> NotificationFunction;
 
@@ -560,9 +488,7 @@ namespace Core {
                     , _position(copy._position)
                 {
                 }
-                ~EventIterator()
-                {
-                }
+                ~EventIterator() = default;
 
                 EventIterator& operator=(const EventIterator& rhs)
                 {
@@ -612,30 +538,21 @@ namespace Core {
             Handler(const Handler&) = delete;
             Handler& operator=(const Handler&) = delete;
 
-            Handler(const NotificationFunction& notificationFunction, const std::vector<uint8_t>& versions)
+            Handler(const std::vector<uint8_t>& versions)
                 : _adminLock()
                 , _handlers()
-                , _observers()
-                , _notificationFunction(notificationFunction)
                 , _versions(versions)
             {
             }
-            Handler(const NotificationFunction& notificationFunction, const std::vector<uint8_t>& versions, const Handler& copy)
+            Handler(const std::vector<uint8_t>& versions, const Handler& copy)
                 : _adminLock()
                 , _handlers(copy._handlers)
-                , _observers()
-                , _notificationFunction(notificationFunction)
                 , _versions(versions)
             {
             }
-            ~Handler()
-            {
-            }
+            ~Handler() = default;
 
         public:
-            inline uint32_t Observers() const {
-                return (static_cast<uint32_t>(_observers.size()));
-            }
             inline EventIterator Events() const
             {
                 return (EventIterator(_handlers));
@@ -796,108 +713,6 @@ namespace Core {
                     result = index->second.Invoke(context, method, parameters, response);
                 }
                 return (result);
-            }
-            void Subscribe(const uint32_t id, const string& eventId, const string& callsign, Core::JSONRPC::Message& response)
-            {
-                _adminLock.Lock();
-
-                ObserverMap::iterator index = _observers.find(eventId);
-
-                if (index == _observers.end()) {
-                    _observers[eventId].emplace_back(id, callsign);
-                    response.Result = _T("0");
-                } else if (std::find(index->second.begin(), index->second.end(), Observer(id, callsign)) == index->second.end()) {
-                    index->second.emplace_back(id, callsign);
-                    response.Result = _T("0");
-                } else {
-                    response.Error.SetError(Core::ERROR_DUPLICATE_KEY);
-                    response.Error.Text = _T("Duplicate registration. Only 1 remains!!!");
-                }
-
-                _adminLock.Unlock();
-            }
-            void Unsubscribe(const uint32_t id, const string& eventId, const string& callsign, Core::JSONRPC::Message& response)
-            {
-                _adminLock.Lock();
-
-                ObserverMap::iterator index = _observers.find(eventId);
-
-                if (index != _observers.end()) {
-                    ObserverList& clients = index->second;
-                    ObserverList::iterator loop = clients.begin();
-                    Observer key(id, callsign);
-
-                    while ((loop != clients.end()) && (*loop != key)) {
-                        loop++;
-                    }
-
-                    if (loop != clients.end()) {
-                        clients.erase(loop);
-                        if (clients.empty() == true) {
-                            _observers.erase(index);
-                        }
-                        response.Result = _T("0");
-                    }
-                }
-
-                if (response.Result.IsSet() == false) {
-                    response.Error.SetError(Core::ERROR_UNKNOWN_KEY);
-                    response.Error.Text = _T("Registration not found!!!");
-                }
-
-                _adminLock.Unlock();
-            }
-            uint32_t Notify(const string& event) const
-            {
-                return (InternalNotify(event, _T("")));
-            }
-            template <typename JSONOBJECT>
-            uint32_t Notify(const string& event, const JSONOBJECT& parameters) const
-            {
-                string subject;
-                parameters.ToString(subject);
-                return (InternalNotify(event, subject));
-            }
-            template <typename JSONOBJECT, typename SENDIFMETHOD>
-            uint32_t Notify(const string& event, const JSONOBJECT& parameters, SENDIFMETHOD method) const
-            {
-                string subject;
-                parameters.ToString(subject);
-                return InternalNotify(event, subject, std::move(method));
-            }
-            void Close(const uint32_t id)
-            {
-                _adminLock.Lock();
-
-                ObserverMap::iterator index = _observers.begin();
-
-                while (index != _observers.end()) {
-                    ObserverList& clients = index->second;
-                    ObserverList::iterator loop = clients.begin();
-
-                    while (loop != clients.end()) {
-                        if (loop->Id() != id) {
-                            loop++;
-                        } else {
-                            loop = clients.erase(loop);
-                        }
-                    }
-                    if (clients.empty() == true) {
-                        index = _observers.erase(index);
-                    } else {
-                        index++;
-                    }
-                }
-
-                _adminLock.Unlock();
-            }
-            void Close()
-            {
-                _adminLock.Lock();
-
-                _observers.clear();
-
-                _adminLock.Unlock();
             }
 
         private:
@@ -1368,42 +1183,9 @@ namespace Core {
                 };
                 Register(methodName, implementation);
             }
-            uint32_t InternalNotify(const string& event, const string& parameters, std::function<bool(const string&)>&& sendifmethod = std::function<bool(const string&)>()) const
-            {
-                uint32_t result = Core::ERROR_UNKNOWN_KEY;
-
-                _adminLock.Lock();
-
-                ObserverMap::const_iterator index = _observers.find(event);
-
-                if (index != _observers.end()) {
-                    const ObserverList& clients = index->second;
-                    ObserverList::const_iterator loop = clients.begin();
-
-                    result = Core::ERROR_NONE;
-
-                    while (loop != clients.end()) {
-                        const string& designator(loop->Designator());
-
-                        if (!sendifmethod || sendifmethod(designator)) {
-
-                            _notificationFunction(loop->Id(), (designator.empty() == false ? designator + '.' + event : event), parameters);
-                        }
-
-                        loop++;
-                    }
-                }
-
-                _adminLock.Unlock();
-
-                return (result);
-            }
-
         private:
             mutable Core::CriticalSection _adminLock;
             HandlerMap _handlers;
-            ObserverMap _observers;
-            NotificationFunction _notificationFunction;
             const std::vector<uint8_t> _versions;
         };
 

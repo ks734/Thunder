@@ -29,15 +29,53 @@ namespace PluginHost {
     // Status information
     // this class holds interesting information that can be requested from the Server
     class EXTERNAL MetaData : public Core::JSON::Container {
-    private:
-        MetaData(const MetaData&) = delete;
-        MetaData& operator=(const MetaData&) = delete;
-
     public:
-        class EXTERNAL Service : public Plugin::Config {
-        private:
-            Service& operator=(const Service& RHS) = delete;
+        class EXTERNAL Version : public Core::JSON::Container {
+        public:
+            Version(Version&&) = delete;
 
+            Version()
+                : Core::JSON::Container()
+                , Hash()
+                , Major(1)
+                , Minor(0)
+                , Patch(0) {
+                Add(_T("hash"), &Hash);
+                Add(_T("major"), &Major);
+                Add(_T("minor"), &Minor);
+                Add(_T("patch"), &Patch);
+            }
+            Version(const Version& copy)
+                : Core::JSON::Container() 
+                , Hash(copy.Hash)
+                , Major(copy.Major)
+                , Minor(copy.Minor)
+                , Patch(copy.Patch) {
+                Add(_T("hash"), &Hash);
+                Add(_T("major"), &Major);
+                Add(_T("minor"), &Minor);
+                Add(_T("patch"), &Patch);
+            }
+
+            Version& operator= (const Version& rhs) {
+
+                Hash = rhs.Hash;
+                Major = rhs.Major;
+                Minor = rhs.Minor;
+                Patch = rhs.Patch;
+
+                return (*this);
+            }
+            ~Version() override = default;
+
+        public:
+            Core::JSON::String Hash;
+            Core::JSON::DecUInt8 Major;
+            Core::JSON::DecUInt8 Minor;
+            Core::JSON::DecUInt8 Patch;
+        };        
+        
+        class EXTERNAL Service : public Plugin::Config {
         public:
             enum state {
                 UNAVAILABLE = PluginHost::IShell::UNAVAILABLE,
@@ -47,6 +85,7 @@ namespace PluginHost {
                 ACTIVATION = PluginHost::IShell::ACTIVATION,
                 DESTROYED = PluginHost::IShell::DESTROYED,
                 PRECONDITION = PluginHost::IShell::PRECONDITION,
+                HIBERNATED = PluginHost::IShell::HIBERNATED,
                 SUSPENDED,
                 RESUMED
             };
@@ -73,6 +112,8 @@ namespace PluginHost {
             };
 
         public:
+            Service& operator=(const Service& RHS) = delete;
+
             Service();
             Service(const Service& copy);
             ~Service();
@@ -88,11 +129,8 @@ namespace PluginHost {
 #if THUNDER_RESTFULL_API
             Core::JSON::DecUInt32 Observers;
 #endif
+            Version ServiceVersion;
             Core::JSON::String Module;
-            Core::JSON::String Hash;
-            Core::JSON::DecUInt8 Major;
-            Core::JSON::DecUInt8 Minor;
-            Core::JSON::DecUInt8 Patch;
             Core::JSON::ArrayType<Core::JSON::String> InterfaceVersion;
         };
 
@@ -103,6 +141,7 @@ namespace PluginHost {
                 WEBSERVER,
                 WEBSOCKET,
                 RAWSOCKET,
+                COMRPC,
                 SUSPENDED
             };
             class EXTERNAL State : public Core::JSON::EnumType<state> {
@@ -185,11 +224,12 @@ namespace PluginHost {
             inline void Clear()
             {
                 ThreadPoolRuns.Clear();
+                PendingRequests.Clear();
             }
 
         public:
             Core::JSON::ArrayType<Minion> ThreadPoolRuns;
-            Core::JSON::DecUInt32 PendingRequests;
+            Core::JSON::ArrayType<Core::JSON::String> PendingRequests;
         };
 
         class EXTERNAL SubSystem : public Core::JSON::Container {
@@ -222,8 +262,71 @@ namespace PluginHost {
         private:
             SubSystemContainer _subSystems;
         };
+        class EXTERNAL COMRPC : public Core::JSON::Container {
+        public:
+            class EXTERNAL Proxy : public Core::JSON::Container {
+            public:
+                Proxy& operator=(const Proxy&) = delete;
 
+                Proxy()
+                    : Core::JSON::Container()
+                    , InterfaceId()
+                    , InstanceId()
+                    , RefCount() {
+                    Add(_T("interface"), &InterfaceId);
+                    Add(_T("instance"), &InstanceId);
+                    Add(_T("count"), &RefCount);
+                }
+                Proxy(const Proxy& copy)
+                    : Core::JSON::Container()
+                    , InterfaceId(copy.InterfaceId)
+                    , InstanceId(copy.InstanceId)
+                    , RefCount(copy.RefCount) {
+                    Add(_T("interface"), &InterfaceId);
+                    Add(_T("instance"), &InstanceId);
+                    Add(_T("count"), &RefCount);
+                }
+                ~Proxy() override = default;
+
+            public:
+                Core::JSON::DecUInt32 InterfaceId;
+                Core::JSON::InstanceId InstanceId;
+                Core::JSON::DecUInt32 RefCount;
+            };
+
+        public:
+            COMRPC& operator= (const COMRPC&) = delete;
+
+            COMRPC()
+                : Core::JSON::Container()
+                , Remote()
+                , Proxies() {
+                Add(_T("link"), &Remote);
+                Add(_T("proxies"), &Proxies);
+            }
+            COMRPC(const COMRPC& copy)
+                : Core::JSON::Container()
+                , Remote(copy.Remote)
+                , Proxies(copy.Proxies) {
+                Add(_T("link"), &Remote);
+                Add(_T("proxies"), &Proxies);
+            }
+            ~COMRPC() override = default;
+
+            void Clear() {
+                Remote.Clear();
+                Proxies.Clear();
+            }
+
+        public:
+            Core::JSON::String Remote;
+            Core::JSON::ArrayType<Proxy> Proxies;
+        };
     public:
+        MetaData(MetaData&&) = delete;
+        MetaData(const MetaData&) = delete;
+        MetaData& operator=(const MetaData&) = delete;
+
         MetaData();
         ~MetaData();
 
@@ -234,6 +337,7 @@ namespace PluginHost {
             Channels.Clear();
             Bridges.Clear();
             Process.Clear();
+            AppVersion.Clear();
         }
 
     public:
@@ -243,6 +347,7 @@ namespace PluginHost {
         Core::JSON::ArrayType<Bridge> Bridges;
         Server Process;
         Core::JSON::String Value;
+        Version AppVersion;
     };
 }
 

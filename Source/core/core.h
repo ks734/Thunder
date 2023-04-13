@@ -24,18 +24,6 @@
 #error "Please define a MODULE_NAME that describes the binary/library you are building."
 #endif
 
-#include <algorithm>
-#include <iostream>
-#include <list>
-#include <map>
-#include <sstream>
-#include <typeinfo>
-#include <vector>
-
-#ifdef WIN32
-#include <xutility>
-#endif
-
 #include "Module.h"
 #include "Portability.h"
 
@@ -72,7 +60,6 @@
 #include "NetworkInfo.h"
 #include "Optional.h"
 #include "Parser.h"
-#include "PrivilegedRequest.h"
 #include "Process.h"
 #include "ProcessInfo.h"
 #include "Proxy.h"

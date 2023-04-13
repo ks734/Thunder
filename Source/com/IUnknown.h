@@ -115,7 +115,7 @@ namespace ProxyStub {
     // -------------------------------------------------------------------------------------------
     // Proxy/Stub generation requirements:
     // 1) Interfaces, used as retrieved in the stub code are called inbound. These proxies hold no reference on account of
-    //    the callee. The initial AddRef on this proxy is an AddRef that can be cached. 
+    //    the callee. The initial AddRef on this proxy is an AddRef that can be cached.
     // 2) Interfaces, returned in the proxy code are called outbound. Outbound proxies are referenced by definition, and thus
     //    should be released.
     //
@@ -123,12 +123,7 @@ namespace ProxyStub {
     // Inbound proxies can cache a pending AddRef if required.
     // Inbound and Outbound do require a remote Release on a transaition from 1 -> 0 AddRef.
     // -------------------------------------------------------------------------------------------
-
     class UnknownProxy {
-    private:
-        UnknownProxy(const UnknownProxy&) = delete;
-        UnknownProxy& operator=(const UnknownProxy&) = delete;
-
     private:
         enum mode : uint8_t {
             CACHING_ADDREF   = 0x01,
@@ -137,6 +132,11 @@ namespace ProxyStub {
         };
 
     public:
+        UnknownProxy() = delete;
+        UnknownProxy(UnknownProxy&&) = delete;
+        UnknownProxy(const UnknownProxy&) = delete;
+        UnknownProxy& operator=(const UnknownProxy&) = delete;
+
         UnknownProxy(const Core::ProxyType<Core::IPCChannel>& channel, const Core::instance_id& implementation, const uint32_t interfaceId, const bool outbound, Core::IUnknown& parent)
             : _adminLock()
             , _refCount(0)
@@ -151,7 +151,10 @@ namespace ProxyStub {
         virtual ~UnknownProxy() = default;
 
     public:
-	bool Invalidate() {
+        uint32_t ReferenceCount() const {
+            return(_refCount);
+        }
+    	bool Invalidate() {
             bool invalidated = false;
             _adminLock.Lock();
             if (_refCount > 0) {
@@ -253,11 +256,15 @@ namespace ProxyStub {
             }
             return (result);
         }
-        inline Core::IUnknown* Parent() 
+        inline Core::IUnknown* Parent()
         {
             return (&_parent);
         }
         const Core::ProxyType<Core::IPCChannel>& Channel() const
+        {
+            return (_channel);
+        }
+        Core::ProxyType<Core::IPCChannel>& Channel()
         {
             return (_channel);
         }
@@ -288,32 +295,34 @@ namespace ProxyStub {
             uint32_t result = _channel->Invoke(message, waitTime);
 
             if (result != Core::ERROR_NONE) {
+                result |= COM_ERROR;
+
                 // Oops something failed on the communication. Report it.
-                TRACE_L1("IPC method invokation failed for 0x%X, error: %d", message->Parameters().InterfaceId(), result);
+                TRACE_L1("IPC method invocation failed for 0x%X, error: %d", message->Parameters().InterfaceId(), result);
             }
 
             return (result);
         }
-        inline void Complete(RPC::Data::Frame::Reader& reader) const
+        inline uint32_t Complete(const Core::instance_id& impl, const uint32_t id, const RPC::Data::Output::mode how)
         {
-            while (reader.HasData() == true) {
-                ASSERT(reader.Length() >= (sizeof(Core::instance_id)));  // IMPLEMENTATION SIZE !!!!
-                void* impl = reinterpret_cast<void*>(reader.Number<Core::instance_id>());
-                uint32_t id = reader.Number<uint32_t>();
-                RPC::Data::Output::mode how = reader.Number<RPC::Data::Output::mode>();
+            // This method is called from the stubs.
 
-                if (how == RPC::Data::Output::mode::CACHED_ADDREF) {
-                    // Just AddRef this implementation
-                    RPC::Administrator::Instance().AddRef(_channel, impl, id);
-                } else if (how == RPC::Data::Output::mode::CACHED_RELEASE) {
-                    // Just Release this implementation
-                    RPC::Administrator::Instance().Release(_channel, impl, id, 1);
-                }
-                else {
-                    // No clue what tp do now......
-                    ASSERT(false);
-                }
+            uint32_t result = Core::ERROR_NONE;
+
+            ASSERT(_channel.IsValid() == true);
+
+            if (how == RPC::Data::Output::mode::CACHED_ADDREF) {
+                // Just AddRef this implementation
+                RPC::Administrator::Instance().AddRef(_channel, reinterpret_cast<void*>(impl), id);
+            } else if (how == RPC::Data::Output::mode::CACHED_RELEASE) {
+                // Just Release this implementation
+                RPC::Administrator::Instance().Release(_channel, reinterpret_cast<void*>(impl), id, 1);
+            } else {
+                ASSERT(!"Invalid caching data");
+                result = Core::ERROR_INVALID_RANGE;
             }
+
+            return (result);
         }
 
         // -------------------------------------------------------------------------------------------------------------------------------
@@ -333,7 +342,7 @@ namespace ProxyStub {
 
             return (_parent.QueryInterface(id));
         }
-        inline void Complete(RPC::Data::Output& response) 
+        inline void Complete(RPC::Data::Output& response)
         {
             uint32_t result = Release();
 
@@ -364,6 +373,33 @@ namespace ProxyStub {
                 delete &_parent;
             }
         }
+        inline void Complete(RPC::Data::Setup& response)
+        {
+            uint32_t result = Release();
+
+            _adminLock.Lock();
+
+            if ((_mode & CACHING_ADDREF) != 0) {
+                _mode ^= CACHING_ADDREF;
+
+                if (_refCount >= 1) {
+                    response.Action(RPC::Data::Output::mode::CACHED_ADDREF);
+                }
+            }
+            else if ((_mode & CACHING_RELEASE) != 0)  {
+                _mode ^= CACHING_RELEASE;
+
+                if (_refCount == 0) {
+                    response.Action(RPC::Data::Output::mode::CACHED_RELEASE);
+                }
+            }
+
+            _adminLock.Unlock();
+
+            if (result != Core::ERROR_NONE) {
+                delete &_parent;
+            }
+        }
 
     private:
         mutable Core::CriticalSection _adminLock;
@@ -378,25 +414,24 @@ namespace ProxyStub {
 
     template <typename INTERFACE>
     class UnknownProxyType : public INTERFACE {
-    private:
+    public:
+        using BaseClass = UnknownProxyType<INTERFACE>;
+        using IPCMessage = Core::ProxyType<RPC::InvokeMessage>;
+
+    public:
         UnknownProxyType(const UnknownProxyType<INTERFACE>&) = delete;
         UnknownProxyType<INTERFACE>& operator=(const UnknownProxyType<INTERFACE>&) = delete;
 
-    public:
-        typedef UnknownProxyType<INTERFACE> BaseClass;
-        typedef Core::ProxyType<RPC::InvokeMessage> IPCMessage;
-
-    public:
-PUSH_WARNING(DISABLE_WARNING_THIS_IN_MEMBER_INITIALIZER_LIST)
+        PUSH_WARNING(DISABLE_WARNING_THIS_IN_MEMBER_INITIALIZER_LIST);
         UnknownProxyType(const Core::ProxyType<Core::IPCChannel>& channel, const Core::instance_id& implementation, const bool outbound)
             : _unknown(channel, implementation, INTERFACE::ID, outbound, *this)
         {
         }
-POP_WARNING()
+        POP_WARNING();
         ~UnknownProxyType() override = default;
 
     public:
-        UnknownProxy* Administration() 
+        UnknownProxy* Administration()
         {
             return(&_unknown);
         }
@@ -404,33 +439,41 @@ POP_WARNING()
         // -------------------------------------------------------------------------------------------------------------------------------
         // Proxy environment calls
         // -------------------------------------------------------------------------------------------------------------------------------
-        inline IPCMessage Message(const uint8_t methodId) const
+        IPCMessage Message(const uint8_t methodId) const
         {
             return (_unknown.Message(methodId));
         }
-        inline uint32_t Invoke(Core::ProxyType<RPC::InvokeMessage>& message, const uint32_t waitTime = RPC::CommunicationTimeOut) const
+        uint32_t Invoke(Core::ProxyType<RPC::InvokeMessage>& message, const uint32_t waitTime = RPC::CommunicationTimeOut) const
         {
             return (_unknown.Invoke(message, waitTime));
         }
-        inline void* Interface(const Core::instance_id& implementation, const uint32_t id) const
+        void* Interface(const Core::instance_id& implementation, const uint32_t id) const
         {
             void* result = nullptr;
-            RPC::Administrator::Instance().ProxyInstance(_unknown.Channel(),implementation,true,id,result);
+            RPC::Administrator::Instance().ProxyInstance(_unknown.Channel(), implementation, true, id, result);
             return (result);
         }
-        inline void Complete(RPC::Data::Frame::Reader& reader) const
+        uint32_t Complete(const Core::instance_id& instance, const uint32_t id, const RPC::Data::Output::mode how)
         {
-            return (_unknown.Complete(reader));
+            return (_unknown.Complete(instance, id, how));
+        }
+        const Core::ProxyType<Core::IPCChannel>& Channel() const
+        {
+            return (_unknown.Channel());
+        }
+        Core::ProxyType<Core::IPCChannel>& Channel()
+        {
+            return (_unknown.Channel());
         }
 
         // -------------------------------------------------------------------------------------------------------------------------------
         // Applications calls to the Proxy
         // -------------------------------------------------------------------------------------------------------------------------------
-        virtual void AddRef() const override
+        void AddRef() const override
         {
             _unknown.AddRef();
         }
-        virtual uint32_t Release() const override
+        uint32_t Release() const override
         {
             uint32_t result = _unknown.Release();
 
@@ -440,7 +483,7 @@ POP_WARNING()
 
             return (result);
         }
-        virtual void* QueryInterface(const uint32_t interfaceNumber) override
+        void* QueryInterface(const uint32_t interfaceNumber) override
         {
             void* result = nullptr;
 
@@ -458,6 +501,7 @@ POP_WARNING()
 
             return (result);
         }
+
     private:
         UnknownProxy _unknown;
     };

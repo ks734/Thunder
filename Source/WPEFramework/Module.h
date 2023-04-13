@@ -27,12 +27,7 @@
 #include <cryptalgo/cryptalgo.h>
 #include <plugins/plugins.h>
 #include <websocket/websocket.h>
-
-#ifdef __CORE_MESSAGING__
 #include <messaging/messaging.h>
-#else
-#include <tracing/tracing.h>
-#endif
 
 #ifdef __CORE_WARNING_REPORTING__
 #include <warningreporting/warningreporting.h>
@@ -41,6 +36,14 @@
 #ifndef TREE_REFERENCE
 #define TREE_REFERENCE engineering_build_for_debug_purpose_only
 #endif
+
+namespace WPEFramework {
+	namespace PluginHost {
+		static constexpr uint8_t Major = 4;
+		static constexpr uint8_t Minor = 0;
+		static constexpr uint8_t Patch = 0;
+	}
+}
 
 #undef EXTERNAL
 #define EXTERNAL

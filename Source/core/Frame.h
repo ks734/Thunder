@@ -210,13 +210,14 @@ namespace Core {
 
                 return (result);
             }
+            template <typename TYPENAME = uint16_t>
             string Text() const
             {
                 string result;
 
                 ASSERT(_container != nullptr);
 
-                _offset += _container->GetText(_offset, result);
+                _offset += _container->GetText<TYPENAME>(_offset, result);
 
                 return (result);
             }
@@ -239,6 +240,17 @@ namespace Core {
             void Forward (const SIZE_CONTEXT skip) {
                 ASSERT(skip <= Length());
                 _offset += skip;
+            }
+            template <typename TYPENAME>
+            TYPENAME PeekNumber() const
+            {
+                TYPENAME result;
+
+                ASSERT(_container != nullptr);
+
+                _container->GetNumber<TYPENAME>(_offset, result);
+
+                return (result);
             }
 
 #ifdef __DEBUG__
@@ -312,11 +324,12 @@ namespace Core {
 
                 _offset += _container->SetBoolean(_offset, value);
             }
+            template <typename TYPENAME = uint16_t>
             void Text(const string& text)
             {
                 ASSERT(_container != nullptr);
 
-                _offset += _container->SetText(_offset, text);
+                _offset += _container->SetText<TYPENAME>(_offset, text);
             }
             void NullTerminatedText(const string& text)
             {
@@ -641,6 +654,11 @@ namespace Core {
 
     private:
         template <typename TYPENAME>
+        static constexpr uint8_t RealSize() {
+            return(sizeof(TYPENAME));
+        }
+
+        template <typename TYPENAME>
         SIZE_CONTEXT SetNumber(const SIZE_CONTEXT offset, const TYPENAME number, const TemplateIntToType<true>&)
         {
             if ((offset + 1) >= _size) {
@@ -655,21 +673,10 @@ namespace Core {
         template <typename TYPENAME>
         void SetNumberLittleEndianPlatform(const SIZE_CONTEXT offset, const TYPENAME number) {
             const uint8_t* source = reinterpret_cast<const uint8_t*>(&number);
-            uint8_t* destination = &(_data[offset + sizeof(TYPENAME) - 1]);
+            uint8_t* destination = &(_data[offset + RealSize<TYPENAME>() - 1]);
 
-            *destination-- = *source++;
-            *destination-- = *source++;
-
-            if ((sizeof(TYPENAME) == 4) || (sizeof(TYPENAME) == 8)) {
+            for (uint8_t index = 0; index < RealSize<TYPENAME>(); index++) {
                 *destination-- = *source++;
-                *destination-- = *source++;
-
-                if (sizeof(TYPENAME) == 8) {
-                    *destination-- = *source++;
-                    *destination-- = *source++;
-                    *destination-- = *source++;
-                    *destination-- = *source++;
-                }
             }
         }
 
@@ -678,19 +685,8 @@ namespace Core {
             const uint8_t* source = reinterpret_cast<const uint8_t*>(&number);
             uint8_t* destination = &(_data[offset]);
 
-            *destination++ = *source++;
-            *destination++ = *source++;
-
-            if ((sizeof(TYPENAME) == 4) || (sizeof(TYPENAME) == 8)) {
+            for (uint8_t index = 0; index < RealSize<TYPENAME>(); index++) {
                 *destination++ = *source++;
-                *destination++ = *source++;
-
-                if (sizeof(TYPENAME) == 8) {
-                    *destination++ = *source++;
-                    *destination++ = *source++;
-                    *destination++ = *source++;
-                    *destination++ = *source++;
-                }
             }
         }
 
@@ -698,8 +694,8 @@ namespace Core {
         template <typename TYPENAME>
         SIZE_CONTEXT SetNumber(const SIZE_CONTEXT offset, const TYPENAME number, const TemplateIntToType<false>&)
         {
-            if ((offset + sizeof(TYPENAME)) >= _size) {
-                Size(offset + sizeof(TYPENAME));
+            if ((offset + RealSize<TYPENAME>()) >= _size) {
+                Size(offset + RealSize<TYPENAME>());
             }
 
             if (BIG_ENDIAN_ORDERING == true) {
@@ -717,7 +713,7 @@ namespace Core {
 #endif
             }
 
-            return (sizeof(TYPENAME));
+            return (RealSize<TYPENAME>());
         }
 
         template <typename TYPENAME>
@@ -736,21 +732,10 @@ namespace Core {
         {
             TYPENAME result = static_cast<TYPENAME>(0);
             const uint8_t* source = &(_data[offset]);
-            uint8_t* destination = &(reinterpret_cast<uint8_t*>(&result)[sizeof(TYPENAME) - 1]);
+            uint8_t* destination = &(reinterpret_cast<uint8_t*>(&result)[RealSize<TYPENAME>() - 1]);
 
-            *destination-- = *source++;
-            *destination-- = *source++;
-
-            if ((sizeof(TYPENAME) == 4) || (sizeof(TYPENAME) == 8)) {
+            for (uint8_t index = 0; index < RealSize<TYPENAME>(); index++) {
                 *destination-- = *source++;
-                *destination-- = *source++;
-
-                if (sizeof(TYPENAME) == 8) {
-                    *destination-- = *source++;
-                    *destination-- = *source++;
-                    *destination-- = *source++;
-                    *destination-- = *source++;
-                }
             }
 
             return (result);
@@ -759,25 +744,14 @@ namespace Core {
         template <typename TYPENAME>
         inline TYPENAME GetNumberBigEndianPlatform(const SIZE_CONTEXT offset) const
         {
-            TYPENAME result =static_cast<TYPENAME>(0);
+            TYPENAME result = static_cast<TYPENAME>(0);
 
             // If the sizeof > 1, the alignment could be wrong. Assume the worst, always copy !!!
             const uint8_t* source = &(_data[offset]);
             uint8_t* destination = reinterpret_cast<uint8_t*>(&result);
 
-            *destination++ = *source++;
-            *destination++ = *source++;
-
-            if ((sizeof(TYPENAME) == 4) || (sizeof(TYPENAME) == 8)) {
+            for (uint8_t index = 0; index < RealSize<TYPENAME>(); index++) {
                 *destination++ = *source++;
-                *destination++ = *source++;
-
-                if (sizeof(TYPENAME) == 8) {
-                    *destination++ = *source++;
-                    *destination++ = *source++;
-                    *destination++ = *source++;
-                    *destination++ = *source++;
-                }
             }
 
             return (result);
@@ -786,7 +760,7 @@ namespace Core {
         template <typename TYPENAME>
         inline SIZE_CONTEXT GetNumber(const SIZE_CONTEXT offset, TYPENAME& value, const TemplateIntToType<false>&) const
         {
-            if ((offset + sizeof(TYPENAME)) > _size) {
+            if ((offset + RealSize<TYPENAME>()) > _size) {
                 value = static_cast<TYPENAME>(0);
             }
             else if (BIG_ENDIAN_ORDERING == true) {
@@ -804,7 +778,7 @@ namespace Core {
 #endif
             }
 
-            return (sizeof(TYPENAME));
+            return (RealSize<TYPENAME>());
         }
 
     private:

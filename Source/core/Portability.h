@@ -176,6 +176,7 @@
 #define DISABLE_WARNING_DEPRECATED_COPY
 #define DISABLE_WARNING_NON_VIRTUAL_DESTRUCTOR
 #define DISABLE_WARNING_UNUSED_RESULT
+#define DISABLE_WARNING_TYPE_LIMITS
 
 #else
 #define DISABLE_WARNING_CONDITIONAL_EXPRESSION_IS_CONSTANT
@@ -199,6 +200,7 @@
 #define DISABLE_WARNING_DEPRECATED_USE PUSH_WARNING_ARG_("-Wdeprecated-declarations")
 #define DISABLE_WARNING_DEPRECATED_COPY PUSH_WARNING_ARG_("-Wdeprecated-copy")
 #define DISABLE_WARNING_NON_VIRTUAL_DESTRUCTOR PUSH_WARNING_ARG_("-Wnon-virtual-dtor")
+#define DISABLE_WARNING_TYPE_LIMITS PUSH_WARNING_ARG_("-Wtype-limits")
 #endif
 #endif
 
@@ -266,6 +268,8 @@ typedef std::wstring string;
 typedef std::string string;
 #endif
 
+using uint24_t = uint32_t;
+
 #define CBR_110 110
 #define CBR_300 300
 #define CBR_600 600
@@ -326,6 +330,7 @@ typedef std::string string;
 #undef min
 #undef max
 #undef ERROR_NOT_SUPPORTED
+#undef ERROR_HIBERNATED
 
 //#if _MSC_VER >= 1600
 //const std::basic_string<char>::size_type std::basic_string<char>::npos = (std::basic_string<char>::size_type) - 1;
@@ -342,47 +347,48 @@ typedef std::string string;
 
 #ifdef __LINUX__
 
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cassert>
+#include <string>
 #include <algorithm>
 #include <atomic>
 #include <array>
 #include <map>
+#include <unordered_map>
 #include <list>
-#include <alloca.h>
-#include <arpa/inet.h>
-#include <assert.h>
-#include <cxxabi.h>
+#include <typeinfo>
 #include <cmath>
+#include <thread>
+
+#include <string.h>
+#include <termios.h>
+#include <unistd.h>
+#include <stdarg.h> /* va_list, va_start, va_arg, va_end */
+#include <alloca.h>
+#include <cxxabi.h>
 #include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <fnmatch.h>
 #include <getopt.h>
-#include <list>
 #include <math.h>
-#include <map>
 #include <poll.h>
 #include <pthread.h>
 #include <sched.h>
 #include <signal.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <string>
-#include <strings.h>
+
 #include <sys/ioctl.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <termios.h>
-#include <typeinfo>
-#include <unistd.h>
-#include <unordered_map>
-#include <thread>
-#include <stdarg.h> /* va_list, va_start, va_arg, va_end */
+
+#include <arpa/inet.h>
 
 #ifdef __APPLE__
 #include <pthread_impl.h>
@@ -567,7 +573,10 @@ struct TemplateIntToType {
 
 extern "C" {
 
-extern EXTERNAL void* memrcpy(void* _Dst, const void* _Src, size_t _MaxCount);
+DEPRECATED inline EXTERNAL void* memrcpy(void* _Dst, const void* _Src, size_t _MaxCount)
+{
+    return (::memmove(_Dst, _Src, _MaxCount));
+}
 
 #if defined(__LINUX__)
 uint64_t htonll(const uint64_t& value);
@@ -624,6 +633,8 @@ typedef std::wstring string;
 typedef std::string string;
 #endif
 
+using uint24_t = uint32_t;
+
 #define STRLEN(STATIC_TEXT) ((sizeof(STATIC_TEXT) / sizeof(TCHAR)) - 1)
 #define EMPTY_STRING _T("")
 
@@ -646,12 +657,25 @@ namespace WPEFramework {
 
 namespace Core {
 
+    #if defined(__CORE_INSTANCE_BITS__) && (__CORE_INSTANCE_BITS__ != 0)
+    #if __CORE_INSTANCE_BITS__ <= 8
+    typedef uint8_t instance_id;
+    #elif __CORE_INSTANCE_BITS__ <= 16
+    typedef uint16_t instance_id;
+    #elif __CORE_INSTANCE_BITS__ <= 32 
+    typedef uint32_t instance_id;
+    #elif __CORE_INSTANCE_BITS__ <= 64
+    typedef uint64_t instance_id;
+    #endif
+    #else
     #if defined(__SIZEOF_POINTER__) && (__SIZEOF_POINTER__ == 8) 
     typedef uint64_t instance_id;
     #else
     typedef uint32_t instance_id;
     #endif
+    #endif
 
+    typedef uint32_t hresult;
 
     struct callstack_info {
         void*    address;
@@ -765,12 +789,12 @@ namespace Core {
         }
 
         template <typename REQUESTEDINTERFACE>
-        REQUESTEDINTERFACE* QueryInterface() const
+        const REQUESTEDINTERFACE* QueryInterface() const
         {
             const void* baseInterface(const_cast<IUnknown*>(this)->QueryInterface(REQUESTEDINTERFACE::ID));
 
             if (baseInterface != nullptr) {
-                return (reinterpret_cast<REQUESTEDINTERFACE*>(baseInterface));
+                return (reinterpret_cast<const REQUESTEDINTERFACE*>(baseInterface));
             }
 
             return (nullptr);
@@ -794,6 +818,8 @@ namespace Core {
         static constexpr std::memory_order memory_order_seq_cst = std::memory_order::memory_order_seq_cst;
     #endif
     }
+
+    #define COM_ERROR (0x80000000)
 
     #define ERROR_CODES \
         ERROR_CODE(ERROR_NONE, 0) \
@@ -841,7 +867,11 @@ namespace Core {
         ERROR_CODE(ERROR_UNAUTHENTICATED, 42) \
         ERROR_CODE(ERROR_NOT_EXIST, 43) \
         ERROR_CODE(ERROR_NOT_SUPPORTED, 44) \
-        ERROR_CODE(ERROR_INVALID_RANGE, 45)
+        ERROR_CODE(ERROR_INVALID_RANGE, 45) \
+        ERROR_CODE(ERROR_HIBERNATED, 46) \
+        ERROR_CODE(ERROR_INPROC, 47) \
+        ERROR_CODE(ERROR_FAILED_REGISTERED, 48) \
+        ERROR_CODE(ERROR_FAILED_UNREGISTERED, 49) 
 
     #define ERROR_CODE(CODE, VALUE) CODE = VALUE,
 

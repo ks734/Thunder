@@ -40,9 +40,7 @@ namespace PluginHost {
         ConsoleOptions(int argumentCount, TCHAR* arguments[])
             : Core::Options(argumentCount, arguments, _T(":bhc:fF"))
             , configFile(Server::ConfigFile)
-#if defined(__CORE_MESSAGING__)
             , flushMode(Messaging::MessageUnit::flush::OFF)
-#endif
         {
             Parse();
         }
@@ -52,9 +50,7 @@ namespace PluginHost {
 
     public:
         const TCHAR* configFile;
-#if defined(__CORE_MESSAGING__)
         Messaging::MessageUnit::flush flushMode;
-#endif
 
     private:
         virtual void Option(const TCHAR option, const TCHAR* argument)
@@ -63,14 +59,12 @@ namespace PluginHost {
             case 'c':
                 configFile = argument;
                 break;
-#if defined(__CORE_MESSAGING__)
             case 'f':
                 flushMode = Messaging::MessageUnit::flush::FLUSH;
                 break;
             case 'F':
                 flushMode = Messaging::MessageUnit::flush::FLUSH_ABBREVIATED;
                 break;
-#endif
 #ifndef __WINDOWS__
             case 'b':
                 _background = true;
@@ -160,7 +154,13 @@ POP_WARNING()
             Stop();
             Wait(Core::Thread::STOPPED, Core::infinite);
         }
-
+        static void DumpMetadata() {
+            _adminLock.Lock();
+            if (_dispatcher != nullptr) {
+                _dispatcher->DumpMetadata();
+            }
+            _adminLock.Unlock();
+        }
         static void StartShutdown() {
             _adminLock.Lock();
             if ((_dispatcher != nullptr) && (_instance == nullptr)) {
@@ -225,9 +225,7 @@ POP_WARNING()
             closelog();
 #endif
 
-#if defined(__CORE_MESSAGING__)
             Messaging::MessageUnit::Instance().Close();
-#endif
 
 #ifdef __CORE_WARNING_REPORTING__
             WarningReporting::WarningReportingUnit::Instance().Close();
@@ -317,6 +315,9 @@ POP_WARNING()
             }
 
             ExitHandler::StartShutdown();
+        }
+        else if (signo == SIGUSR1) {
+            ExitHandler::DumpMetadata();
         }
     }
 
@@ -431,10 +432,8 @@ POP_WARNING()
                 fprintf(stderr, "Usage: " EXPAND_AND_QUOTE(APPLICATION_NAME) " [-c <config file>] [-b] [-fF]\n");
                 fprintf(stderr, "       -c <config file>  Define the configuration file to use.\n");
                 fprintf(stderr, "       -b                Run " EXPAND_AND_QUOTE(APPLICATION_NAME) " in the background.\n");
-#if defined(__CORE_MESSAGING__)
                 fprintf(stderr, "       -f                Flush messaging information also to syslog/console, none abbreviated\n");
                 fprintf(stderr, "       -F                Flush messaging information also to syslog/console, abbreviated\n");
-#endif
             }
             exit(EXIT_FAILURE);
         }
@@ -449,6 +448,7 @@ POP_WARNING()
             sigaction(SIGINT, &sa, nullptr);
             sigaction(SIGTERM, &sa, nullptr);
             sigaction(SIGQUIT, &sa, nullptr);
+            sigaction(SIGUSR1, &sa, nullptr);
         }
 
         if (atexit(ForcedExit) != 0) {
@@ -467,9 +467,6 @@ POP_WARNING()
 #endif
 
         std::set_terminate(UncaughtExceptions);
-#if !defined(__CORE_MESSAGING__)
-        Logging::SysLog(!_background);
-#endif
 
         // Read the config file, to instantiate the proper plugins and for us to open up the right listening ear.
         Core::File configFile(string(options.configFile));
@@ -551,35 +548,19 @@ POP_WARNING()
 
                 messagingSettings = Core::Directory::Normalize(Core::File::PathName(options.configFile)) + _config->MessagingCategories();
 
-#if defined(__CORE_MESSAGING__)
                 std::ifstream inputFile (messagingSettings, std::ifstream::in);
                 std::stringstream buffer;
                 buffer << inputFile.rdbuf();
                 messagingSettings = buffer.str();
-#else
-                Core::File input(messagingSettings);
-
-                if (input.Open(true)) {
-                    Trace::TraceUnit::Instance().Defaults(input);
-                }
-#endif
             }
             else {
-#if defined(__CORE_MESSAGING__)
                 messagingSettings = _config->MessagingCategories();
-#else
-                Trace::TraceUnit::Instance().Defaults(_config->MessagingCategories());
-#endif
             }
 
             // Time to open up, the message buffer for this process and define it for the out-of-proccess systems
             // Define the environment variable for Messaging files, if it is not already set.
             uint32_t messagingErrorCode = Core::ERROR_GENERAL;
-#if defined(__CORE_MESSAGING__)
             messagingErrorCode = Messaging::MessageUnit::Instance().Open(_config->VolatilePath(), _config->MessagingPort(), messagingSettings, _background, options.flushMode);
-#else
-            messagingErrorCode = Trace::TraceUnit::Instance().Open(_config->VolatilePath());
-#endif
 
             if ( messagingErrorCode != Core::ERROR_NONE){
 #ifndef __WINDOWS__
@@ -605,7 +586,7 @@ POP_WARNING()
             SYSLOG_GLOBAL(Logging::Startup, (_T("Process Id:    %d"), Core::ProcessInfo().Id()));
             SYSLOG_GLOBAL(Logging::Startup, (_T("Tree ref:      " _T(EXPAND_AND_QUOTE(TREE_REFERENCE)))));
             SYSLOG_GLOBAL(Logging::Startup, (_T("Build ref:     " _T(EXPAND_AND_QUOTE(BUILD_REFERENCE)))));
-            SYSLOG_GLOBAL(Logging::Startup, (_T("Version:       %s"), _config->Version().c_str()));
+            SYSLOG_GLOBAL(Logging::Startup, (_T("Version:       %d:%d:%d"), PluginHost::Major, PluginHost::Minor, PluginHost::Minor));
             SYSLOG_GLOBAL(Logging::Startup, (_T("Messages:        %s"), messagingSettings.c_str()));
 
             // Before we do any translation of IP, make sure we have the right network info...
@@ -647,9 +628,50 @@ POP_WARNING()
                     keyPress = toupper(getchar());
 
                     switch (keyPress) {
+                    case 'A': {
+                        Core::JSON::ArrayType<MetaData::COMRPC> proxyChannels;
+                        RPC::Administrator::Instance().Visit([&](const Core::IPCChannel& channel, const RPC::Administrator::Proxies& proxies) {
+                                MetaData::COMRPC& entry(proxyChannels.Add());
+                                const RPC::Communicator::Client* comchannel = dynamic_cast<const RPC::Communicator::Client*>(&channel);
+
+                                if (comchannel != nullptr) {
+                                    string identifier = PluginHost::ChannelIdentifier(comchannel->Source());
+
+                                    if (identifier.empty() == false) {
+                                        entry.Remote = identifier;
+                                    }
+                                }
+
+                                for (const auto& proxy : proxies) {
+                                    MetaData::COMRPC::Proxy& info(entry.Proxies.Add());
+                                    info.InstanceId = proxy->Implementation();
+                                    info.InterfaceId = proxy->InterfaceId();
+                                    info.RefCount = proxy->ReferenceCount();
+                                }
+                            }
+                        );
+                        Core::JSON::ArrayType<MetaData::COMRPC>::Iterator index(proxyChannels.Elements());
+
+                        printf("COMRPC Links:\n");
+                        printf("============================================================\n");
+                        while (index.Next() == true) {
+                            printf("Link: %s\n", index.Current().Remote.Value().c_str());
+                            printf("------------------------------------------------------------\n");
+
+                            Core::JSON::ArrayType<MetaData::COMRPC::Proxy>::Iterator loop(index.Current().Proxies.Elements());
+
+                            while (loop.Next() == true) {
+                                uint64_t instanceId = loop.Current().InstanceId.Value();
+                                printf("InstanceId: 0x%" PRIx64 ", RefCount: %d, InterfaceId %d [0x%X]\n", instanceId, loop.Current().RefCount.Value(), loop.Current().InterfaceId.Value(), loop.Current().InterfaceId.Value());
+                            }
+                            printf("\n");
+                        }
+                        break;
+                    }
                     case 'C': {
                         Core::JSON::ArrayType<MetaData::Channel> metaData;
                         _dispatcher->Dispatcher().GetMetaData(metaData);
+                        _dispatcher->Services().GetMetaData(metaData);
                         Core::JSON::ArrayType<MetaData::Channel>::Iterator index(metaData.Elements());
 
                         printf("\nChannels:\n");
@@ -806,7 +828,7 @@ POP_WARNING()
                             printf("SystemState: UNKNOWN\n");
                             printf("------------------------------------------------------------\n");
                         }
-                        printf("Pending:     %d\n", metaData.Pending);
+                        printf("Pending:     %d\n", static_cast<uint32_t>(metaData.Pending.size()));
                         printf("Poolruns:\n");
                         for (uint8_t index = 0; index < metaData.Slots; index++) {
                            printf("  Thread%02d|0x%08X: %10d", (index + 1), (uint32_t) metaData.Slot[index].WorkerId, metaData.Slot[index].Runs);
@@ -925,6 +947,7 @@ POP_WARNING()
                     }
                     case '?':
                         printf("\nOptions are: \n");
+                        printf("  [A]ctive Proxy list\n");
                         printf("  [P]lugins\n");
                         printf("  [C]hannels\n");
                         printf("  [S]erver stats\n");

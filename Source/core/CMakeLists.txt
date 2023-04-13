@@ -99,7 +99,6 @@ set(PUBLIC_HEADERS
         Optional.h
         Parser.h
         Portability.h
-        PrivilegedRequest.h
         Process.h
         ProcessInfo.h
         Proxy.h
@@ -193,6 +192,11 @@ if(NOT WCHAR_SUPPORT)
     message(STATUS "Disabled WCHAR support.")
 endif()
 
+if (INSTANCE_ID_BITS)
+    target_compile_definitions(${TARGET} PUBLIC __CORE_INSTANCE_BITS__=${INSTANCE_ID_BITS})
+    message(STATUS "COMRPC instanceid defined as ${INSTANCE_ID_BITS} bits.")
+endif()
+
 if(BLUETOOTH_SUPPORT)
     target_compile_definitions(${TARGET} PUBLIC __CORE_BLUETOOTH_SUPPORT__)
     message(STATUS "Enable bluetooth support.")
@@ -207,9 +211,8 @@ if(BUILD_TESTS)
 endif()
 
 target_link_libraries(${TARGET}
-        PUBLIC
-          CompileSettings::CompileSettings
         PRIVATE
+          CompileSettings::CompileSettings
           CompileSettingsDebug::CompileSettingsDebug
           ${CMAKE_DL_LIBS}
           Threads::Threads

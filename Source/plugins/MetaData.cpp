@@ -26,11 +26,12 @@ namespace WPEFramework {
 
 ENUM_CONVERSION_BEGIN(PluginHost::MetaData::Channel::state)
 
-    { PluginHost::MetaData::Channel::WEBSERVER, _TXT("WebServer") },
-    { PluginHost::MetaData::Channel::WEBSOCKET, _TXT("WebSocket") },
-    { PluginHost::MetaData::Channel::RAWSOCKET, _TXT("RawSocket") },
-    { PluginHost::MetaData::Channel::CLOSED, _TXT("Closed") },
-    { PluginHost::MetaData::Channel::SUSPENDED, _TXT("Suspended") },
+    { PluginHost::MetaData::Channel::state::WEBSERVER, _TXT("WebServer") },
+    { PluginHost::MetaData::Channel::state::WEBSOCKET, _TXT("WebSocket") },
+    { PluginHost::MetaData::Channel::state::RAWSOCKET, _TXT("RawSocket") },
+    { PluginHost::MetaData::Channel::state::CLOSED,    _TXT("Closed")    },
+    { PluginHost::MetaData::Channel::state::COMRPC,    _TXT("COMRPC")    },
+    { PluginHost::MetaData::Channel::state::SUSPENDED, _TXT("Suspended") },
 
     ENUM_CONVERSION_END(PluginHost::MetaData::Channel::state)
 
@@ -44,6 +45,7 @@ ENUM_CONVERSION_BEGIN(PluginHost::MetaData::Channel::state)
     { PluginHost::MetaData::Service::SUSPENDED, _TXT("suspended") },
     { PluginHost::MetaData::Service::RESUMED, _TXT("resumed") },
     { PluginHost::MetaData::Service::PRECONDITION, _TXT("precondition") },
+    { PluginHost::MetaData::Service::HIBERNATED, _TXT("hibernated") },
 
     ENUM_CONVERSION_END(PluginHost::MetaData::Service::state)
 
@@ -121,11 +123,8 @@ namespace PluginHost
 #if THUNDER_RESTFULL_API
         , Observers(0)
 #endif
+        , ServiceVersion()
         , Module()
-        , Hash()
-        , Major(0)
-        , Minor(0)
-        , Patch(0)
         , InterfaceVersion()
     {
         Add(_T("state"), &JSONState);
@@ -137,10 +136,13 @@ namespace PluginHost
         Add(_T("observers"), &Observers);
 #endif
         Add(_T("module"), &Module);
-        Add(_T("hash"), &Hash);
-        Add(_T("major"), &Major);
-        Add(_T("minor"), &Minor);
-        Add(_T("patch"), &Patch);
+#ifdef DEPRECATED_CODE 
+        Add(_T("hash"), &(ServiceVersion.Hash));
+        Add(_T("major"), &(ServiceVersion.Major));
+        Add(_T("minor"), &(ServiceVersion.Minor));
+        Add(_T("patch"), &(ServiceVersion.Patch));
+#endif
+        Add(_T("version"), &ServiceVersion);
         Add(_T("interface"), &InterfaceVersion);
     }
     MetaData::Service::Service(const MetaData::Service& copy)
@@ -153,11 +155,8 @@ namespace PluginHost
 #if THUNDER_RESTFULL_API
         , Observers(copy.Observers)
 #endif
+        , ServiceVersion(copy.ServiceVersion)
         , Module(copy.Module)
-        , Hash(copy.Hash)
-        , Major(copy.Major)
-        , Minor(copy.Minor)
-        , Patch(copy.Patch)
         , InterfaceVersion(copy.InterfaceVersion)
     {
         Add(_T("state"), &JSONState);
@@ -169,10 +168,14 @@ namespace PluginHost
         Add(_T("observers"), &Observers);
 #endif
         Add(_T("module"), &Module);
-        Add(_T("hash"), &Hash);
-        Add(_T("major"), &Major);
-        Add(_T("minor"), &Minor);
-        Add(_T("patch"), &Patch);
+#ifdef DEPRECATED_CODE 
+        Add(_T("hash"), &(ServiceVersion.Hash));
+        Add(_T("major"), &(ServiceVersion.Major));
+        Add(_T("minor"), &(ServiceVersion.Minor));
+        Add(_T("patch"), &(ServiceVersion.Patch));
+#endif
+        Add(_T("version"), &ServiceVersion);
+
         Add(_T("interface"), &InterfaceVersion);
     }
     MetaData::Service::~Service()
@@ -296,6 +299,9 @@ namespace PluginHost
     }
 
     MetaData::Server::Server()
+        : Core::JSON::Container()
+        , ThreadPoolRuns()
+        , PendingRequests()
     {
         Core::JSON::Container::Add(_T("threads"), &ThreadPoolRuns);
         Core::JSON::Container::Add(_T("pending"), &PendingRequests);
@@ -305,13 +311,22 @@ namespace PluginHost
     }
 
     MetaData::MetaData()
+        : Core::JSON::Container()
+        , SubSystems()
+        , Plugins()
+        , Channels()
+        , Bridges()
+        , Process()
+        , Value()
+        , AppVersion()
     {
+        Core::JSON::Container::Add(_T("subsystems"), &SubSystems);
         Core::JSON::Container::Add(_T("plugins"), &Plugins);
         Core::JSON::Container::Add(_T("channel"), &Channels);
-        Core::JSON::Container::Add(_T("server"), &Process);
         Core::JSON::Container::Add(_T("bridges"), &Bridges);
+        Core::JSON::Container::Add(_T("server"), &Process);
         Core::JSON::Container::Add(_T("value"), &Value);
-        Core::JSON::Container::Add(_T("subsystems"), &SubSystems);
+        Core::JSON::Container::Add(_T("version"), &AppVersion);
     }
     MetaData::~MetaData()
     {

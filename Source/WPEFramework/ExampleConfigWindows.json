@@ -3,17 +3,17 @@
   "binding": "127.0.0.1",
   "idletime": 60,
   "ipv6": false,
-  "persistentpath": "D:/Domotica/artifacts/Persistent",
-  "volatilepath": "D:/Domotica/artifacts/temp",
-  "datapath": "D:/Domotica/artifacts/Debug/Plugins",
-  "systempath": "D:/Domotica/artifacts/Debug",
-  "proxystubpath": "D:/Domotica/artifacts/ProxyStubs/Debug",
-  "communicator": "127.0.0.1:62000",
+  "persistentpath": "C:/ThunderWin/artifacts/Persistent",
+  "volatilepath": "C:/ThunderWin/artifacts/temp",
+  "datapath": "C:/ThunderWin/artifacts/Debug/Plugins",
+  "systempath": "C:/ThunderWin/artifacts/Debug",
+  "proxystubpath": "C:/ThunderWin/artifacts/ProxyStubs/Debug",
+  "communicator": "0.0.0.0:62000",
   "redirect": "Service/Controller/UI",
   "messagingport": 63000,
   "observe": {
-    "proxystubpath": "D:/Domotica/artifacts/dynamic/proxystubs",
-    "configpath": "D:/Domotica/artifacts/dynamic/config"
+    "proxystubpath": "C:/ThunderWin/artifacts/dynamic/proxystubs",
+    "configpath": "C:/ThunderWin/artifacts/dynamic/config"
   },
   "messaging": {
     "logging": {
@@ -28,13 +28,20 @@
     "tracing": {
       "settings": [
         {
-          "module": "Plugin_OutOfProcess",
-          "category": "TestTrace",
-          "enabled": true
+          "module": "ZWave",
+          "enabled": false
+        },
+        {
+          "module": "Plugin_ZigbeeControl",
+          "enabled": false
         },
         {
           "module": "Plugin_Butler",
-          "enabled":  true
+          "enabled": false
+        },
+        {
+          "module": "Plugin_BridgeLink",
+          "enabled": true
         }
       ]
     }
@@ -93,10 +100,21 @@
       }
     },
     {
+      "callsign": "BridgeLink",
+      "locator": "libBridgeLink.so",
+      "classname": "BridgeLink",
+      "autostart": false,
+      "configuration": {
+        "source": "192.168.1.102:62000",
+        "retries": 255,
+        "interval": 10
+      }
+    },
+    {
       "callsign": "Butler",
       "locator": "libButler.so",
       "classname": "Butler",
-      "autostart": false
+      "autostart": true
     },
     {
       "callsign": "ZigbeeControl",
@@ -104,9 +122,18 @@
       "classname": "ZigbeeControl",
       "autostart": false,
       "configuration": {
-        "port": "\\\\.\\COM6",
+        "port": "\\\\.\\COM4",
         "watchdog": 1442,
         "pan": 65200
+      }
+    },
+    {
+      "callsign": "ZWaveControl",
+      "locator": "libZWaveControl.so",
+      "classname": "ZWaveControl",
+      "autostart": false,
+      "configuration": {
+        "port": "\\\\.\\COM5"
       }
     },
     {
@@ -264,9 +291,9 @@
       "callsign": "IOControl",
       "locator": "libIOControl.so",
       "classname": "IOControl",
-      "autostart": false,
+      "autostart": true,
       "configuration": {
-        "port": "\\\\.\\COM8",
+        "port": "\\\\.\\COM24",
         "pins": [
           {
             "id": 0,
@@ -311,9 +338,9 @@
       "callsign": "OneWireControl",
       "locator": "libOneWireControl.so",
       "classname": "OneWireControl",
-      "autostart": false,
+      "autostart": true,
       "configuration": {
-        "port": "\\\\.\\COM8",
+        "port": "\\\\.\\COM24",
         "devices": [
           {
             "address": "0x28-0414708B0EFF-FE",
@@ -327,9 +354,9 @@
       "callsign": "I2CControl",
       "locator": "libI2CControl.so",
       "classname": "I2CControl",
-      "autostart": false,
+      "autostart": true,
       "configuration": {
-        "port": "\\\\.\\COM20",
+        "port": "\\\\.\\COM24",
         "devices": [
           {
             "address": 35,
@@ -359,7 +386,7 @@
       "callsign": "JSONRPCPlugin",
       "locator": "libJSONRPCPlugin.so",
       "classname": "JSONRPCPlugin",
-      "autostart": false
+      "autostart": true
     },
     {
       "callsign": "OpenCDMi",
@@ -408,7 +435,7 @@
         "port": 8080,
         "binding": "0.0.0.0",
         "root": {
-          "mode": "Off"
+          "mode": "Local"
         }
       }
     },
@@ -428,7 +455,7 @@
     },
     {
       "callsign": "TimeSync",
-      "locator": "libtimesync.so",
+      "locator": "1libtimesync.so",
       "classname": "TimeSync",
       "autostart": false,
       "configuration": {
@@ -473,7 +500,7 @@
       "callsign": "Dictionary",
       "locator": "libdictionary.so",
       "classname": "Dictionary",
-      "autostart": true
+      "autostart": false
     },
     {
       "callsign": "DIALServer",
@@ -530,7 +557,7 @@
       }
     },
     {
-      "autostart": true,
+      "autostart": false,
       "callsign": "WebKitBrowser",
       "classname": "OutOfProcessPlugin",
       "locator": "libOutOfProcessPlugin.so",

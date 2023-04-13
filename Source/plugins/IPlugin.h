@@ -55,9 +55,16 @@ namespace PluginHost {
             virtual void Activated(const string& callsign, IShell* plugin) = 0;
             virtual void Deactivated(const string& callsign, IShell* plugin) = 0;
             virtual void Unavailable(const string& callsign, IShell* plugin) = 0;
+        };
 
-            virtual void Initialize(VARIABLE_IS_NOT_USED const string& callsign, VARIABLE_IS_NOT_USED IShell* plugin) {};
-            virtual void Deinitialized(VARIABLE_IS_NOT_USED const string& callsign, VARIABLE_IS_NOT_USED IShell* plugin) {};
+        struct ILifeTime : virtual public Core::IUnknown {
+
+            enum { ID = RPC::ID_PLUGIN_LIFETIME };
+
+            ~ILifeTime() override = default;
+
+            virtual void Initialize(const string& callsign, IShell* plugin) = 0;
+            virtual void Deinitialized(const string& callsign, IShell* plugin) = 0;
         };
 
         ~IPlugin() override = default;
@@ -104,6 +111,24 @@ namespace PluginHost {
         //! @}
         virtual bool Attach(PluginHost::Channel& channel) = 0;
         virtual void Detach(PluginHost::Channel& channel) = 0;
+    };
+
+    struct EXTERNAL ICompositPlugin : public virtual Core::IUnknown {
+        enum { ID = RPC::ID_COMPOSIT_PLUGIN };
+
+        struct EXTERNAL INotification : public virtual Core::IUnknown {
+            enum { ID = RPC::ID_COMPOSIT_PLUGIN_NOTIFICATION };
+
+            ~INotification() override = default;
+
+            virtual uint32_t Activated(const string& callsign, IShell* plugin) = 0;
+            virtual uint32_t Deactivated(const string& callsign, IShell* plugin) = 0;
+        };
+
+        ~ICompositPlugin() override = default;
+
+        virtual uint32_t Register(INotification*) = 0;
+        virtual uint32_t Unregister(INotification*) = 0;
     };
 
     /* @stubgen:omit */
@@ -222,7 +247,7 @@ namespace PluginHost {
 
         ~IAuthenticate() override = default;
 
-        virtual uint32_t CreateToken(const uint16_t length/* @in */, const uint8_t buffer[]/*  @in @length:length  */, string& token/* @out */) = 0;
+        virtual Core::hresult CreateToken(const uint16_t length /* @in */, const uint8_t buffer[] /* @in @length:length */, string& token /* @out */) = 0;
         virtual ISecurity* Officer(const string& token) = 0;
     };
 

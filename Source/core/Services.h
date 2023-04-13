@@ -96,6 +96,10 @@ namespace Core {
         static ServiceAdministrator& Instance();
 
     public:
+        Library LoadLibrary(const TCHAR libraryName[]) {
+            Core::SafeSyncType<Core::CriticalSection> lock(_adminLock);
+            return (Library(libraryName));
+        }
         // There is *NO* locking around the _callback pointer. SO this callback 
         // must be set, before any Service Object is created ore released!!!
         void Callback(ICallback* callback)
@@ -195,6 +199,7 @@ namespace Core {
     template <typename ACTUALSINK>
     class Sink : public ACTUALSINK {
     private:
+        Sink(Sink<ACTUALSINK>&&) = delete;
         Sink(const Sink<ACTUALSINK>&) = delete;
         Sink<ACTUALSINK> operator=(const Sink<ACTUALSINK>&) = delete;
 

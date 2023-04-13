@@ -23,9 +23,12 @@ option(VIRTUALINPUT_TOOLS "Build VirtualInput tools" OFF)
 
 ProxyStubGenerator(NAMESPACE "WPEFramework::PluginHost" INPUT "${CMAKE_CURRENT_SOURCE_DIR}/IPlugin.h" OUTDIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 ProxyStubGenerator(NAMESPACE "WPEFramework::PluginHost" INPUT "${CMAKE_CURRENT_SOURCE_DIR}/IShell.h" OUTDIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
-ProxyStubGenerator(NAMESPACE "WPEFramework::PluginHost" INPUT "${CMAKE_CURRENT_SOURCE_DIR}/IController.h" OUTDIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+ProxyStubGenerator(NAMESPACE "WPEFramework::Exchange" INPUT "${CMAKE_CURRENT_SOURCE_DIR}/IController.h" OUTDIR "${CMAKE_CURRENT_BINARY_DIR}/generated" INCLUDE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/..")
 ProxyStubGenerator(NAMESPACE "WPEFramework::PluginHost" INPUT "${CMAKE_CURRENT_SOURCE_DIR}/IStateControl.h" OUTDIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 ProxyStubGenerator(NAMESPACE "WPEFramework::PluginHost" INPUT "${CMAKE_CURRENT_SOURCE_DIR}/ISubSystem.h" OUTDIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+ProxyStubGenerator(NAMESPACE "WPEFramework::PluginHost" INPUT "${CMAKE_CURRENT_SOURCE_DIR}/IDispatcher.h" OUTDIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
+JsonGenerator(CODE NAMESPACE WPEFramework::Exchange::IController INPUT ${CMAKE_CURRENT_SOURCE_DIR}/IController.h OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/jsonrpc" INCLUDE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/.." NO_INCLUDES)
 
 add_library(${TARGET} SHARED
         Channel.cpp
@@ -46,6 +49,7 @@ add_library(${TARGET_PROXYSTUBS} SHARED
         ${CMAKE_CURRENT_BINARY_DIR}/generated/ProxyStubs_Controller.cpp
         ${CMAKE_CURRENT_BINARY_DIR}/generated/ProxyStubs_StateControl.cpp
         ${CMAKE_CURRENT_BINARY_DIR}/generated/ProxyStubs_SubSystem.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/generated/ProxyStubs_Dispatcher.cpp
         Module.cpp
         )
 
@@ -60,6 +64,7 @@ set(PUBLIC_HEADERS
         IStateControl.h
         StateControl.h
         ISubSystem.h
+        IDispatcher.h
         SubSystem.h
         JSONRPC.h
         MetaData.h
@@ -159,6 +164,7 @@ InstallPackageConfig(
         DESCRIPTION "Basic library to realize the glue between a proprietary plugin and the framework host.")
 
 InstallCMakeConfig(
+        EXTRA_DEPENDENCIES "ConfigGenerator"
         TARGETS ${TARGET})
 
 InstallCMakeConfig(TARGETS ${TARGET_PROXYSTUBS})

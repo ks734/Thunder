@@ -44,13 +44,13 @@ namespace PluginHost {
 
             struct INotification : virtual public Core::IUnknown {
                 virtual ~INotification() = default;
-                virtual void CleanedUp(const Core::IUnknown* source, const uint32_t interfaceId) = 0;
+                virtual void Dangling(const Core::IUnknown* source, const uint32_t interfaceId) = 0;
                 virtual void Revoked(const Core::IUnknown* remote, const uint32_t interfaceId) = 0;
             };
 
             virtual ~ICOMLink() = default;
             virtual void Register(RPC::IRemoteConnection::INotification* sink) = 0;
-            virtual void Unregister(RPC::IRemoteConnection::INotification* sink) = 0;
+            virtual void Unregister(const RPC::IRemoteConnection::INotification* sink) = 0;
 
             virtual void Register(INotification* sink) = 0;
             virtual void Unregister(INotification* sink) = 0;
@@ -160,18 +160,6 @@ namespace PluginHost {
         virtual void EnableWebServer(const string& URLPath, const string& fileSystemPath) = 0;
         virtual void DisableWebServer() = 0;
 
-        //! Version: Returns the version of the application hosting the plugin
-        virtual string Version() const = 0;
-
-        //! Version: Returns the Major version of the plugin
-        virtual uint8_t Major() const = 0;
-
-        //! Version: Returns the Minor version of the plugin
-        virtual uint8_t Minor() const = 0;
-
-        //! Version: Returns the Patch version of the plugin
-        virtual uint8_t Patch() const = 0;
-
         //! Model: Returns a Human Readable name for the platform it is running on.
         virtual string Model() const = 0;
 
@@ -218,24 +206,25 @@ namespace PluginHost {
         virtual string SystemRootPath() const = 0;
 
         //! SystemRootPath: Set <config:systemrootpath>/
-        virtual uint32_t SystemRootPath(const string& systemRootPath) = 0;
+        virtual Core::hresult SystemRootPath(const string& systemRootPath) = 0;
 
         //! Startup: <config:startup>/
         virtual PluginHost::IShell::startup Startup() const = 0;
 
         //! Startup: Set<startup,autostart,resumed states>/
-        virtual uint32_t Startup(const startup value) = 0;
+        virtual Core::hresult Startup(const startup value) = 0;
 
         //! Substituted Config value
         virtual string Substitute(const string& input) const = 0;
 
         virtual bool Resumed() const = 0;
-        virtual uint32_t Resumed(const bool value) = 0;
+        virtual Core::hresult Resumed(const bool value) = 0;
 
         virtual string HashKey() const = 0;
         
         virtual string ConfigLine() const = 0;
-        virtual uint32_t ConfigLine(const string& config) = 0;
+        virtual Core::hresult ConfigLine(const string& config) = 0;
+        virtual Core::hresult Metadata(string& info /* @out */) const = 0;
 
         //! Return whether the given version is supported by this IShell instance.
         virtual bool IsSupported(const uint8_t version) const = 0;
@@ -259,10 +248,10 @@ namespace PluginHost {
 
         // Methods to Activate/Deactivate and Unavailable the aggregated Plugin to this shell.
         // NOTE: These are Blocking calls!!!!!
-        virtual uint32_t Activate(const reason) = 0;
-        virtual uint32_t Deactivate(const reason) = 0;
-        virtual uint32_t Unavailable(const reason) = 0;
-        virtual uint32_t Hibernate(const reason) = 0;
+        virtual Core::hresult Activate(const reason) = 0;
+        virtual Core::hresult Deactivate(const reason) = 0;
+        virtual Core::hresult Unavailable(const reason) = 0;
+        virtual Core::hresult Hibernate(const uint32_t timeout) = 0;
         virtual reason Reason() const = 0;
 
         // Method to access, in the main process space, the channel factory to submit JSON objects to be send.
@@ -286,7 +275,7 @@ namespace PluginHost {
                 handler->Register(sink);
             }
         }
-        inline void Unregister(RPC::IRemoteConnection::INotification* sink)
+        inline void Unregister(const RPC::IRemoteConnection::INotification* sink)
         {
             ICOMLink* handler(COMLink());
 
@@ -368,18 +357,20 @@ namespace PluginHost {
             Core::File path(storagePath);
 
             if (path.IsDirectory() == false) {
-                if (Core::Directory(PersistentPath().c_str()).Create() != true) {
+                if (Core::Directory(storagePath.c_str()).Create() != true) {
                     result = Core::ERROR_BAD_REQUEST;
                 }
             }
-            if (permission) {
-                path.Permission(permission);
-            }
-            if (user.empty() != true) {
-                path.User(user);
-            }
-            if (group.empty() != true) {
-                path.Group(group);
+            if (result == Core::ERROR_NONE) {
+                if (permission) {
+                    path.Permission(permission);
+                }
+                if (user.empty() != true) {
+                    path.User(user);
+                }
+                if (group.empty() != true) {
+                    path.Group(group);
+                }
             }
 
             return (result);

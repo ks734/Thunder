@@ -20,11 +20,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Channel.cpp" />
-    <ClCompile Include="generated\ProxyStubs_Controller.cpp" />
-    <ClCompile Include="generated\ProxyStubs_Plugin.cpp" />
-    <ClCompile Include="generated\ProxyStubs_Shell.cpp" />
-    <ClCompile Include="generated\ProxyStubs_StateControl.cpp" />
-    <ClCompile Include="generated\ProxyStubs_SubSystem.cpp" />
     <ClCompile Include="MetaData.cpp" />
     <ClCompile Include="Module.cpp" />
     <ClCompile Include="Service.cpp" />
@@ -39,8 +34,9 @@
     <ClInclude Include="Channel.h" />
     <ClInclude Include="Config.h" />
     <ClInclude Include="Configuration.h" />
+    <ClInclude Include="IController.h" />
+    <ClInclude Include="IDispatcher.h" />
     <ClInclude Include="IPlugin.h" />
-    <ClInclude Include="IRemoteInstantiation.h" />
     <ClInclude Include="IShell.h" />
     <ClInclude Include="IStateControl.h" />
     <ClInclude Include="ISubSystem.h" />
@@ -152,8 +148,7 @@
       <ProgramDatabaseFile>$(IntDir)$(TargetName).pdb</ProgramDatabaseFile>
     </Link>
     <PreBuildEvent>
-      <Command>
-      </Command>
+      <Command>python  "$(ToolPath)\JsonGenerator\JsonGenerator.py" -I "$(FrameworkPath)\" --no-includes --keep-empty -c --namespace WPEFramework::Exchange::IController -o "$(ProjectDir)generated\json" "$(ProjectDir)IController.h" --force</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -174,8 +169,7 @@
       <ProgramDatabaseFile>$(IntDir)$(TargetName).pdb</ProgramDatabaseFile>
     </Link>
     <PreBuildEvent>
-      <Command>
-      </Command>
+      <Command>python  "$(ToolPath)\JsonGenerator\JsonGenerator.py" -I "$(FrameworkPath)\" --no-includes --keep-empty -c --namespace WPEFramework::Exchange::IController -o "$(ProjectDir)generated\json" "$(ProjectDir)IController.h" --force</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -196,8 +190,7 @@
       <ProgramDatabaseFile>$(IntDir)$(TargetName).pdb</ProgramDatabaseFile>
     </Link>
     <PreBuildEvent>
-      <Command>
-      </Command>
+      <Command>python  "$(ToolPath)\JsonGenerator\JsonGenerator.py" -I "$(FrameworkPath)\" --no-includes --keep-empty -c --namespace WPEFramework::Exchange::IController -o "$(ProjectDir)generated\json" "$(ProjectDir)IController.h" --force</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -222,8 +215,7 @@
       <ProgramDatabaseFile>$(IntDir)$(TargetName).pdb</ProgramDatabaseFile>
     </Link>
     <PreBuildEvent>
-      <Command>
-      </Command>
+      <Command>python  "$(ToolPath)\JsonGenerator\JsonGenerator.py" -I "$(FrameworkPath)\" --no-includes --keep-empty -c --namespace WPEFramework::Exchange::IController -o "$(ProjectDir)generated\json" "$(ProjectDir)IController.h" --force</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

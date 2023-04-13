@@ -40,12 +40,17 @@ namespace RPC {
 #endif
     enum { CommunicationBufferSize = 8120 }; // 8K :-)
 
+    struct InstanceRecord {
+        Core::instance_id instance;
+        uint32_t interface;
+    };
+
     class EXTERNAL Administrator {
+    public:
+        typedef std::vector<ProxyStub::UnknownProxy*> Proxies;
+
     private:
         Administrator();
-        Administrator(const Administrator&) = delete;
-        Administrator& operator=(const Administrator&) = delete;
-
         class RecoverySet {
         public:
             RecoverySet() = delete;
@@ -86,8 +91,7 @@ namespace RPC {
             uint32_t _referenceCount;
         };
 
-        typedef std::list<ProxyStub::UnknownProxy*> ProxyList;
-        typedef std::map<const Core::IPCChannel*, ProxyList> ChannelMap;
+        typedef std::map<const Core::IPCChannel*, Proxies> ChannelMap;
         typedef std::map<const Core::IPCChannel*, std::list< RecoverySet > > ReferenceMap;
 
         struct EXTERNAL IMetadata {
@@ -98,29 +102,48 @@ namespace RPC {
 
         template <typename PROXY>
         class ProxyType : public IMetadata {
-        private:
-            ProxyType(const ProxyType<PROXY>& copy) = delete;
-            ProxyType<PROXY>& operator=(const ProxyType<PROXY>& copy) = delete;
-
         public:
-            ProxyType()
-            {
-            }
+            ProxyType(ProxyType<PROXY>&& ) = delete;
+            ProxyType(const ProxyType<PROXY>&) = delete;
+            ProxyType<PROXY>& operator=(const ProxyType<PROXY>&) = delete;
+
+            ProxyType() = default;
             ~ProxyType() override = default;
 
-        private:
-            virtual ProxyStub::UnknownProxy* CreateProxy(const Core::ProxyType<Core::IPCChannel>& channel, const Core::instance_id& implementation, const bool remoteRefCounted)
+            ProxyStub::UnknownProxy* CreateProxy(const Core::ProxyType<Core::IPCChannel>& channel, const Core::instance_id& implementation, const bool remoteRefCounted) override
             {
                 return (new PROXY(channel, implementation, remoteRefCounted))->Administration();
             }
         };
 
     public:
+        Administrator(Administrator&&) = delete;
+        Administrator(const Administrator&) = delete;
+        Administrator& operator=(const Administrator&) = delete;
+
         virtual ~Administrator();
 
         static Administrator& Instance();
 
     public:
+        // void action(const Client& client)
+        template<typename ACTION>
+        void Visit(ACTION&& action) {
+            _adminLock.Lock();
+            for (auto& entry : _channelProxyMap) {
+                action(*entry.first, entry.second);
+            }
+            _adminLock.Unlock();
+        }
+        // void action(const Client& client)
+        template<typename ACTION>
+        void Visit(ACTION&& action) const {
+            _adminLock.Lock();
+            for (const auto& entry : _channelProxyMap) {
+                action(*entry.first, entry.second);
+            }
+            _adminLock.Unlock();
+        }
         template <typename ACTUALINTERFACE, typename PROXY, typename STUB>
         void Announce()
         {
@@ -190,6 +213,8 @@ namespace RPC {
         }
         ProxyStub::UnknownProxy* ProxyInstance(const Core::ProxyType<Core::IPCChannel>& channel, const Core::instance_id& impl, const bool outbound, const uint32_t id, void*& interface);
 
+        bool IsValid(const Core::ProxyType<Core::IPCChannel>& channel, const Core::instance_id& impl, const uint32_t id) const;
+
         // ----------------------------------------------------------------------------------------------------
         // Methods for the Proxy Environment
         // ----------------------------------------------------------------------------------------------------
@@ -211,7 +236,8 @@ namespace RPC {
         {
             RegisterInterface(channel, reference, ACTUALINTERFACE::ID);
         }
-        void RegisterInterface(Core::ProxyType<Core::IPCChannel>& channel, const void* source, const uint32_t id) {
+        void RegisterInterface(Core::ProxyType<Core::IPCChannel>& channel, const void* source, const uint32_t id)
+        {
             RegisterUnknownInterface(channel, Convert(const_cast<void*>(source), id), id);
         }
 
@@ -235,6 +261,7 @@ namespace RPC {
                         index->second.erase(element);
                         if (index->second.size() == 0) {
                             _channelReferenceMap.erase(index);
+                            TRACE_L3("Unregistered interface %p(%u).", source, interfaceId);
                         }
                     }
                 } else {
@@ -247,17 +274,18 @@ namespace RPC {
             _adminLock.Unlock();
         }
         void UnregisterProxy(const ProxyStub::UnknownProxy& proxy);
-        
+
    private:
         // ----------------------------------------------------------------------------------------------------
         // Methods for the Stub Environment
         // ----------------------------------------------------------------------------------------------------
         Core::IUnknown* Convert(void* rawImplementation, const uint32_t id);
+        const Core::IUnknown* Convert(void* rawImplementation, const uint32_t id) const;
         void RegisterUnknownInterface(Core::ProxyType<Core::IPCChannel>& channel, Core::IUnknown* source, const uint32_t id);
 
     private:
         // Seems like we have enough information, open up the Process communcication Channel.
-        Core::CriticalSection _adminLock;
+        mutable Core::CriticalSection _adminLock;
         std::map<uint32_t, ProxyStub::UnknownStub*> _stubs;
         std::map<uint32_t, IMetadata*> _proxy;
         Core::ProxyPoolType<InvokeMessage> _factory;
@@ -315,11 +343,11 @@ namespace RPC {
         string Identifier() const override {
             string identifier;
             Core::ProxyType<InvokeMessage> message(_message);
-            if (message.IsValid() == true) {
-                identifier = _T("COMRPC::Unknown::Request");
+            if (message.IsValid() == false) {
+                identifier = _T("{ \"type\": \"COMRPC\" }");
             }
             else {
-                identifier = Core::Format(_T("COMRPC::Interface[%d]::Method[%d]"), message->Parameters().InterfaceId(), message->Parameters().MethodId());
+                identifier = Core::Format(_T("{ \"type\": \"COMRPC\", \"interface\": %d, \"method\": %d }"), message->Parameters().InterfaceId(), message->Parameters().MethodId());
             }
             return (identifier);
         }

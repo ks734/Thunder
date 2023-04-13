@@ -23,12 +23,21 @@
 #include "Module.h"
 #include "PluginServer.h"
 #include "Probe.h"
-#include "json/JsonData_Controller.h"
+#include "IController.h"
 
 namespace WPEFramework {
 namespace Plugin {
 
-    class Controller : public PluginHost::IController, public PluginHost::IPlugin, public PluginHost::IWeb, public PluginHost::JSONRPC {
+    class Controller 
+        : public PluginHost::IPlugin
+        , public PluginHost::IWeb
+        , public PluginHost::JSONRPC
+        , public Exchange::IController::IConfiguration
+        , public Exchange::IController::IDiscovery
+        , public Exchange::IController::ISystemManagement
+        , public Exchange::IController::IMetadata
+        , public Exchange::IController::ILifeTime
+        , public Exchange::IController::ILifeTime::INotification {
     public:
         class CallstackData : public Core::JSON::Container {
         public:
@@ -97,9 +106,45 @@ namespace Plugin {
             Core::JSON::DecUInt32 Line;
         };
 
+	class SubsystemsData : public Core::JSON::Container {
+        public:
+            SubsystemsData()
+                : Core::JSON::Container()
+            {
+                Init();
+            }
+
+            SubsystemsData(const SubsystemsData& other)
+                : Core::JSON::Container()
+                , Subsystem(other.Subsystem)
+                , Active(other.Active)
+            {
+                Init();
+            }
+
+            SubsystemsData& operator=(const SubsystemsData& rhs)
+            {
+                Subsystem = rhs.Subsystem;
+                Active = rhs.Active;
+                return (*this);
+            }
+
+        private:
+            void Init()
+            {
+                Add(_T("subsystem"), &Subsystem);
+                Add(_T("active"), &Active);
+            }
+
+        public:
+            Core::JSON::EnumType<PluginHost::ISubSystem::subsystem> Subsystem;
+            Core::JSON::Boolean Active;
+        };
+
     private:
-        class Sink : public PluginHost::IPlugin::INotification,
-                     public PluginHost::ISubSystem::INotification {
+        class Sink 
+            : public PluginHost::IPlugin::INotification
+            , public PluginHost::ISubSystem::INotification {
         private:
             class Job {
             public:
@@ -128,7 +173,7 @@ namespace Plugin {
                 : _parent(parent)
                 , _job(parent) {
             }
-            virtual ~Sink() {
+            ~Sink() override {
                 _job.Revoke();
             }
 
@@ -139,15 +184,19 @@ namespace Plugin {
             }
             void Activated(const string& callsign, PluginHost::IShell* plugin) override
             {
-                _parent.Activated(callsign, plugin);
+                _parent.NotifyStateChange(callsign, PluginHost::IShell::ACTIVATED, plugin->Reason());
+
+                // Make sure the resumes 
+                _parent.StartupResume(callsign, plugin);
+
             }
             void Deactivated(const string& callsign, PluginHost::IShell* plugin) override
             {
-                _parent.Deactivated(callsign, plugin);
+                _parent.NotifyStateChange(callsign, PluginHost::IShell::DEACTIVATED, plugin->Reason());
             }
             void Unavailable(const string& callsign, PluginHost::IShell* plugin) override
             {
-                _parent.Unavailable(callsign, plugin);
+                _parent.NotifyStateChange(callsign, PluginHost::IShell::UNAVAILABLE, plugin->Reason());
             }
 
             BEGIN_INTERFACE_MAP(Sink)
@@ -217,7 +266,7 @@ namespace Plugin {
         Controller& operator=(const Controller&);
 
     protected:
-        PUSH_WARNING(DISABLE_WARNING_THIS_IN_MEMBER_INITIALIZER_LIST)
+        PUSH_WARNING(DISABLE_WARNING_THIS_IN_MEMBER_INITIALIZER_LIST);
             Controller()
             : _adminLock()
             , _skipURL(0)
@@ -229,16 +278,14 @@ namespace Plugin {
             , _resumes()
             , _lastReported()
             , _externalSubsystems()
+            , _observers()
         {
-            RegisterAll();
         }
-POP_WARNING()
+        POP_WARNING();
 
     public:
         virtual ~Controller()
         {
-            UnregisterAll();
-
             // Attach to the SubSystems, we propagate the changes.
             PluginHost::ISubSystem* subSystems(_service->SubSystems());
 
@@ -335,20 +382,39 @@ POP_WARNING()
         // based on a a request is handled.
         Core::ProxyType<Web::Response> Process(const Web::Request& request) override;
 
-        //  IController methods
+        //  Controller methods
         // -------------------------------------------------------------------------------------------------------
-        uint32_t Persist() override;
+        Core::hresult Delete(const string& path) override;
+        Core::hresult Reboot() override;
+        Core::hresult Environment(const string& index, string& environment) const override;
+        Core::hresult Clone(const string& callsign, const string& newcallsign, string& response /* @out */) override;
 
-        uint32_t Delete(const string& path) override;
+        Core::hresult StartDiscovery(const uint8_t& ttl) override;
+        Core::hresult DiscoveryResults(string& response) const override;
 
-        uint32_t Reboot() override;
+        Core::hresult Persist() override;
+        Core::hresult Configuration(const string& callsign, string& configuration) const override;
+        Core::hresult Configuration(const string& callsign, const string& configuration) override;
 
-        uint32_t Environment(const string& index, string& environment) const override;
+        Core::hresult Register(Exchange::IController::ILifeTime::INotification* notification) override;
+        Core::hresult Unregister(Exchange::IController::ILifeTime::INotification* notification) override;
 
-        uint32_t Configuration(const string& callsign, string& configuration) const override;
-        uint32_t Configuration(const string& callsign, const string& configuration) override;
+        Core::hresult Activate(const string& callsign) override;
+        Core::hresult Deactivate(const string& callsign) override;
+        Core::hresult Unavailable(const string& callsign) override;
+        Core::hresult Suspend(const string& callsign) override;
+        Core::hresult Resume(const string& callsign) override;
+        Core::hresult Hibernate(const string& callsign, const Core::hresult timeout);
 
-        uint32_t Clone(const string& basecallsign, const string& newcallsign) override;
+        Core::hresult Proxies(string& response) const override;
+        Core::hresult Status(const string& index, string& response) const override;
+        Core::hresult CallStack(const string& index, string& callstack) const override;
+        Core::hresult Links(string& response) const override;
+        Core::hresult ProcessInfo(string& response) const override;
+        Core::hresult Subsystems(string& response) const override;
+        Core::hresult Version(string& response) const override;
+
+        void StateChange(const string& callsign, const PluginHost::IShell::state& state, const PluginHost::IShell::reason& reason) override;
 
         //  IUnknown methods
         // -------------------------------------------------------------------------------------------------------
@@ -356,66 +422,42 @@ POP_WARNING()
         INTERFACE_ENTRY(PluginHost::IPlugin)
         INTERFACE_ENTRY(PluginHost::IWeb)
         INTERFACE_ENTRY(PluginHost::IDispatcher)
-        INTERFACE_ENTRY(PluginHost::IController)
+        INTERFACE_ENTRY(Exchange::IController::IConfiguration)
+        INTERFACE_ENTRY(Exchange::IController::IDiscovery)
+        INTERFACE_ENTRY(Exchange::IController::ISystemManagement)
+        INTERFACE_ENTRY(Exchange::IController::IMetadata)
+        INTERFACE_ENTRY(Exchange::IController::ILifeTime)
+        INTERFACE_ENTRY(Exchange::IController::ILifeTime::INotification)
         END_INTERFACE_MAP
 
     private:
-        //  IDispatch methods
+        //  ILocalDispatcher methods
         // -------------------------------------------------------------------------------------------------------
-        Core::ProxyType<Core::JSONRPC::Message> Invoke(const Core::JSONRPC::Context& token, const Core::JSONRPC::Message& inbound) override;
+        uint32_t Validate(const string& token, const string& method, const string& paramaters) const override;
+        uint32_t Invoke(const uint32_t channelId, const uint32_t id, const string& token, const string& method, const string& parameters, string& response /* @out */) override;
 
-        inline Core::ProxyType<PluginHost::Server::Service> FromIdentifier(const string& callsign) const
+        inline Core::ProxyType<PluginHost::IShell> FromIdentifier(const string& callsign) const
         {
-            Core::ProxyType<PluginHost::Server::Service> service;
+            Core::ProxyType<PluginHost::IShell> service;
 
             _pluginServer->Services().FromIdentifier(callsign, service);
 
             return (service);
         }
-	void WorkerPoolMetaData(PluginHost::MetaData::Server& data) const
-	{
-            const Core::WorkerPool::Metadata& snapshot = Core::WorkerPool::Instance().Snapshot();
-
-            data.PendingRequests = snapshot.Pending;
-
-            for (uint8_t teller = 0; teller < snapshot.Slots; teller++) {
-                // Example of why copy-constructor and assignment constructor should be equal...
-                Core::JSON::DecUInt32 newElement;
-                data.ThreadPoolRuns.Add() = snapshot.Slot[teller];
-            }
-	}
+        void WorkerPoolMetaData(PluginHost::MetaData::Server& data) const {
+            _pluginServer->WorkerPool().Snapshot(data);
+        }
         void Callstack(const ThreadId id, Core::JSON::ArrayType<CallstackData>& response) const;
         void SubSystems();
+        uint32_t Harakiri();
+        uint32_t Storeconfig();
+        uint32_t Clone(const string& basecallsign, const string& newcallsign);
+        void Proxies(Core::JSON::ArrayType<PluginHost::MetaData::COMRPC>& info) const;
         Core::ProxyType<Web::Response> GetMethod(Core::TextSegmentIterator& index) const;
         Core::ProxyType<Web::Response> PutMethod(Core::TextSegmentIterator& index, const Web::Request& request);
         Core::ProxyType<Web::Response> DeleteMethod(Core::TextSegmentIterator& index, const Web::Request& request);
-        void Activated(const string& callsign, PluginHost::IShell* plugin);
-        void Deactivated(const string& callsign, PluginHost::IShell* plugin);
-        void Unavailable(const string& callsign, PluginHost::IShell* plugin);
-
-        void RegisterAll();
-        void UnregisterAll();
-        uint32_t endpoint_suspend(const JsonData::Controller::ActivateParamsInfo& params);
-        uint32_t endpoint_resume(const JsonData::Controller::ActivateParamsInfo& params);
-        uint32_t endpoint_activate(const JsonData::Controller::ActivateParamsInfo& params);
-        uint32_t endpoint_clone(const JsonData::Controller::CloneParamsInfo& params, Core::JSON::String& response);
-        uint32_t endpoint_deactivate(const JsonData::Controller::ActivateParamsInfo& params);
-        uint32_t endpoint_unavailable(const JsonData::Controller::ActivateParamsInfo& params);
-        uint32_t endpoint_startdiscovery(const JsonData::Controller::StartdiscoveryParamsData& params);
-        uint32_t endpoint_storeconfig();
-        uint32_t endpoint_delete(const JsonData::Controller::DeleteParamsData& params);
-        uint32_t endpoint_harakiri();
-        uint32_t get_callstack(const string& index, Core::JSON::ArrayType<CallstackData>& response) const;
-        uint32_t get_status(const string& index, Core::JSON::ArrayType<PluginHost::MetaData::Service>& response) const;
-        uint32_t get_links(Core::JSON::ArrayType<PluginHost::MetaData::Channel>& response) const;
-        uint32_t get_processinfo(PluginHost::MetaData::Server& response) const;
-        uint32_t get_subsystems(Core::JSON::ArrayType<JsonData::Controller::SubsystemsParamsData>& response) const;
-        uint32_t get_discoveryresults(Core::JSON::ArrayType<PluginHost::MetaData::Bridge>& response) const;
-        uint32_t get_environment(const string& index, Core::JSON::String& response) const;
-        uint32_t get_configuration(const string& index, Core::JSON::String& response) const;
-        uint32_t set_configuration(const string& index, const Core::JSON::String& params);
-
-        void event_statechange(const string& callsign, const PluginHost::IShell::state& state, const PluginHost::IShell::reason& reason);
+        void StartupResume(const string& callsign, PluginHost::IShell* plugin);
+        void NotifyStateChange(const string& callsign, const PluginHost::IShell::state& state, const PluginHost::IShell::reason& reason);
 
     private:
         Core::CriticalSection _adminLock;
@@ -428,6 +470,7 @@ POP_WARNING()
         std::list<string> _resumes;
         uint32_t _lastReported;
         std::vector<PluginHost::ISubSystem::subsystem> _externalSubsystems;
+        std::list<Exchange::IController::ILifeTime::INotification*> _observers;
     };
 }
 }

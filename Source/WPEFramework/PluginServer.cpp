@@ -28,6 +28,10 @@
 #include "../processcontainers/ProcessContainer.h"
 #endif
 
+#ifdef HIBERNATE_SUPPORT_ENABLED
+#include "../extensions/hibernate/hibernate.h"
+#endif
+
 namespace WPEFramework {
 
 ENUM_CONVERSION_BEGIN(Core::ProcessInfo::scheduler)
@@ -158,6 +162,21 @@ namespace PluginHost
         const string _controllerName;
     };
 
+    string ChannelIdentifier (const Core::SocketPort& input) {
+        string result;
+        const Core::NodeId& localNode(input.LocalNode());
+
+        if ((localNode.Type() == Core::NodeId::enumType::TYPE_IPV4) || ((localNode.Type() == Core::NodeId::enumType::TYPE_IPV6))) {
+            // It is using TCP/IP (4 or 6) connectivity..
+            result = input.RemoteNode().HostName() + '@' + Core::NumberType<uint16_t>(localNode.PortNumber()).Text();
+        }
+        else {
+            // It's not a network connection, let report to whom it hooked up..
+            result = localNode.HostName() + '@' + Core::NumberType<Core::IResource::handle>(static_cast<const Core::IResource&>(input).Descriptor()).Text();
+        }
+        return (result);
+    }
+
     void Server::WorkerPoolImplementation::Dispatcher::Dispatch(Core::IDispatch* job) /* override */ {
     #if defined(__CORE_EXCEPTION_CATCHING__) || defined(__CORE_WARNING_REPORTING__)
         string callsign(_T("Callsign Unknown"));
@@ -215,7 +234,7 @@ namespace PluginHost
     {
         _adminLock.Lock();
 
-        std::map<const string, Core::ProxyType<Service>>::iterator index(_services.begin());
+        ServiceContainer::iterator index(_services.begin());
         std::list< Core::ProxyType<Service> > deactivationList;
 
         // First, move them all to deactivated except Controller
@@ -255,25 +274,14 @@ namespace PluginHost
         _processAdministrator.Destroy();
     }
 
-    uint8_t Server::Service::Major() const /* override */ {
-        return (_metadata.Major());
-    }
-
-    uint8_t Server::Service::Minor() const /* override */ {
-        return (_metadata.Minor());
-    }
-
-    uint8_t Server::Service::Patch() const /* override */ {
-        return (_metadata.Patch());
-    }
-
     /* virtual */ void* Server::Service::QueryInterface(const uint32_t id)
     {
         void* result = nullptr;
         if (id == Core::IUnknown::ID) {
             AddRef();
             result = static_cast<IUnknown*>(this);
-        } if (id == PluginHost::IShell::ID) {
+        } 
+        else if (id == PluginHost::IShell::ID) {
             AddRef();
             result = static_cast<PluginHost::IShell*>(this);
         }
@@ -308,9 +316,9 @@ namespace PluginHost
     }
 
     // Methods to stop/start/update the service.
-    uint32_t Server::Service::Activate(const PluginHost::IShell::reason why)
+    /* virtual */ Core::hresult Server::Service::Activate(const PluginHost::IShell::reason why)
     {
-        uint32_t result = Core::ERROR_NONE;
+        Core::hresult result = Core::ERROR_NONE;
 
         Lock();
 
@@ -320,17 +328,12 @@ namespace PluginHost
             Unlock();
             result = Core::ERROR_INPROGRESS;
         }
-        else if ((currentState == IShell::state::UNAVAILABLE) || (currentState == IShell::state::DEACTIVATION) || (currentState == IShell::state::DESTROYED)) {
+        else if ((currentState == IShell::state::UNAVAILABLE) || (currentState == IShell::state::DEACTIVATION) || (currentState == IShell::state::DESTROYED) ) {
             Unlock();
             result = Core::ERROR_ILLEGAL_STATE;
-        }
-        else if (currentState == IShell::state::HIBERNATED) {
-            // Wake up the Hibernated process..
-            Wakeup();
-            State(ACTIVATED);
+        } else if (currentState == IShell::state::HIBERNATED) {
             Unlock();
-            result = Core::ERROR_NONE;
-
+            result = Wakeup(3000);
         } else if ((currentState == IShell::state::DEACTIVATED) || (currentState == IShell::state::PRECONDITION)) {
 
             // Load the interfaces, If we did not load them yet...
@@ -354,7 +357,6 @@ namespace PluginHost
                 _reason = why;
                 State(PRECONDITION);
 
-#ifdef __CORE_MESSAGING__
                 if (WPEFramework::Messaging::LocalLifetimeType<Activity, &WPEFramework::Core::System::MODULE_NAME, WPEFramework::Core::Messaging::Metadata::type::TRACING>::IsEnabled() == true) {
                     string feedback;
                     uint8_t index = 1;
@@ -376,31 +378,6 @@ namespace PluginHost
 
                     TRACE(Activity, (_T("Delta preconditions: %s"), feedback.c_str()));
                 }
-#else
-                if (Trace::TraceType<Activity, &Core::System::MODULE_NAME>::IsEnabled() == true) {
-                    string feedback;
-                    uint8_t index = 1;
-                    uint32_t delta(_precondition.Delta(_administrator.SubSystemInfo()));
-
-                    while (delta != 0) {
-                        if ((delta & 0x01) != 0) {
-                            if (feedback.empty() == false) {
-                                feedback += ',';
-                            }
-
-                            PluginHost::ISubSystem::subsystem element(static_cast<PluginHost::ISubSystem::subsystem>(index));
-                            feedback += string(Core::EnumerateType<PluginHost::ISubSystem::subsystem>(element).Data());
-                        }
-
-                        delta = (delta >> 1);
-                        index++;
-                    }
-
-                    Activity newData(_T("Delta preconditions: %s"), feedback.c_str());
-                    Trace::TraceType<Activity, &Core::System::MODULE_NAME> traceData(newData);
-                    Trace::TraceUnit::Instance().Trace(__FILE__, __LINE__, className.c_str(), &traceData);
-                }
-#endif
 
                 Unlock();
 
@@ -445,11 +422,8 @@ namespace PluginHost
                         EnableWebServer(webUI, EMPTY_STRING);
                     }
 
-                    IDispatcher* dispatcher = _handler->QueryInterface<IDispatcher>();
-
-                    if (dispatcher != nullptr) {
-                        dispatcher->Activate(this);
-                        dispatcher->Release();
+                    if (_jsonrpc != nullptr) {
+                        _jsonrpc->Activate(this);
                     }
 
                     SYSLOG(Logging::Startup, (_T("Activated plugin [%s]:[%s]"), className.c_str(), callSign.c_str()));
@@ -489,9 +463,9 @@ namespace PluginHost
 
         if (currentState == IShell::state::ACTIVATION) {
             result = Core::ERROR_INPROGRESS;
-        } else if ((currentState == IShell::state::DEACTIVATION) || (currentState == IShell::state::DESTROYED)) {
+        } else if ((currentState == IShell::state::DEACTIVATION) || (currentState == IShell::state::DESTROYED) || (currentState == IShell::state::HIBERNATED)) {
             result = Core::ERROR_ILLEGAL_STATE;
-        } else if ( (currentState == IShell::state::DEACTIVATED) || (currentState == IShell::state::HIBERNATED) ) {
+        } else if ( (currentState == IShell::state::DEACTIVATED) ) {
             result = Activate(why);
             currentState = State();
         }
@@ -516,9 +490,9 @@ namespace PluginHost
         return (result);
     }
 
-    uint32_t Server::Service::Deactivate(const reason why)
+    /* virtual */ Core::hresult Server::Service::Deactivate(const reason why)
     {
-        uint32_t result = Core::ERROR_NONE;
+        Core::hresult result = Core::ERROR_NONE;
 
         Lock();
 
@@ -526,9 +500,9 @@ namespace PluginHost
 
         if (currentState == IShell::state::DEACTIVATION) {
             result = Core::ERROR_INPROGRESS;
-        } else if ( ((currentState == IShell::state::ACTIVATION) && (why != IShell::reason::INITIALIZATION_FAILED)) || (currentState == IShell::state::HIBERNATED) || (currentState == IShell::state::DESTROYED)) {
+        } else if ( ((currentState == IShell::state::ACTIVATION) && (why != IShell::reason::INITIALIZATION_FAILED)) || (currentState == IShell::state::DESTROYED)) {
             result = Core::ERROR_ILLEGAL_STATE;
-        } else if ( ((currentState == IShell::state::ACTIVATION) && (why == IShell::reason::INITIALIZATION_FAILED)) || (currentState == IShell::state::UNAVAILABLE) || (currentState == IShell::state::ACTIVATED) || (currentState == IShell::state::PRECONDITION)) {
+        } else if ( ((currentState == IShell::state::ACTIVATION) && (why == IShell::reason::INITIALIZATION_FAILED)) || (currentState == IShell::state::UNAVAILABLE) || (currentState == IShell::state::ACTIVATED) || (currentState == IShell::state::PRECONDITION) || (currentState == IShell::state::HIBERNATED) ) {
             const Core::EnumerateType<PluginHost::IShell::reason> textReason(why);
 
             const string className(PluginHost::Service::Configuration().ClassName.Value());
@@ -536,15 +510,29 @@ namespace PluginHost
 
             _reason = why;
 
+            if(currentState == IShell::state::HIBERNATED)
+            {
+                Unlock();
+                uint32_t wakeupResult = Wakeup(3000);
+                Lock();
+                if(wakeupResult != Core::ERROR_NONE)
+                {
+                    //Force Activated state
+                    State(ACTIVATED);
+                }
+                currentState = ACTIVATED;
+            }
+
             if ( (currentState == IShell::ACTIVATION) || (currentState == IShell::ACTIVATED)) {
                 ASSERT(_handler != nullptr);
 
                 State(DEACTIVATION);
-                if( currentState == IShell::ACTIVATED ) {
-                _administrator.Deactivated(callSign, this);
-                }
-
                 Unlock();
+
+                if (currentState == IShell::ACTIVATED) {
+                    TRACE(Activity, (_T("Deactivating plugin [%s]:[%s]"), className.c_str(), callSign.c_str()));
+                    _administrator.Deactivated(callSign, this);
+                }
 
                 // We might require PostMortem analyses if the reason is not really clear. Call the PostMortum installed so it can generate
                 // required logs/OS information before we start to kill it.
@@ -555,35 +543,28 @@ namespace PluginHost
                     DisableWebServer();
                 }
 
-                if( currentState == IShell::state::ACTIVATED ) {
-                TRACE(Activity, (_T("Deactivation plugin [%s]:[%s]"), className.c_str(), callSign.c_str()));
-                }
-
                 REPORT_DURATION_WARNING( { _handler->Deinitialize(this); }, WarningReporting::TooLongPluginState, WarningReporting::TooLongPluginState::StateChange::DEACTIVATION, callSign.c_str());
 
                 Lock();
 
-                PluginHost::IDispatcher* dispatcher = dynamic_cast<PluginHost::IDispatcher*>(_handler);
-
-                if (dispatcher != nullptr) {
-                    dispatcher->Deactivate();
+                if (_jsonrpc != nullptr) {
+                    _jsonrpc->Deactivate();
                 }
 
                 _administrator.Deinitialized(callSign, this);
 
             }
 
-            if( currentState != IShell::state::ACTIVATION ) {
+            if (currentState != IShell::state::ACTIVATION) {
 
-            SYSLOG(Logging::Shutdown, (_T("Deactivated plugin [%s]:[%s]"), className.c_str(), callSign.c_str()));
+                SYSLOG(Logging::Shutdown, (_T("Deactivated plugin [%s]:[%s]"), className.c_str(), callSign.c_str()));
 
-            TRACE(Activity, (Core::Format(_T("Deactivate plugin [%s]:[%s]"), className.c_str(), callSign.c_str())));
 
 #if THUNDER_RESTFULL_API
-            _administrator.Notification(_T("{\"callsign\":\"") + callSign + _T("\",\"state\":\"deactivated\",\"reason\":\"") + textReason.Data() + _T("\"}"));
+                _administrator.Notification(_T("{\"callsign\":\"") + callSign + _T("\",\"state\":\"deactivated\",\"reason\":\"") + textReason.Data() + _T("\"}"));
 #endif
 
-            _administrator.Notification(PluginHost::Server::ForwardMessage(callSign, string(_T("{\"state\":\"deactivated\",\"reason\":\"")) + textReason.Data() + _T("\"}")));
+                _administrator.Notification(PluginHost::Server::ForwardMessage(callSign, string(_T("{\"state\":\"deactivated\",\"reason\":\"")) + textReason.Data() + _T("\"}")));
 
             }
 
@@ -637,8 +618,8 @@ namespace PluginHost
         return (result);
     }
 
-    uint32_t Server::Service::Unavailable(const reason why) {
-        uint32_t result = Core::ERROR_NONE;
+    /* virtual */ Core::hresult Server::Service::Unavailable(const reason why) {
+        Core::hresult result = Core::ERROR_NONE;
 
         Lock();
 
@@ -681,8 +662,8 @@ namespace PluginHost
 
     }
 
-    uint32_t Server::Service::Hibernate(const PluginHost::IShell::reason why) {
-        uint32_t result = Core::ERROR_NONE;
+    Core::hresult Server::Service::Hibernate(const uint32_t timeout VARIABLE_IS_NOT_USED) /* override */ {
+        Core::hresult result = Core::ERROR_NONE;
 
         Lock();
 
@@ -691,8 +672,8 @@ namespace PluginHost
         if (currentState != IShell::state::ACTIVATED) {
             result = Core::ERROR_ILLEGAL_STATE;
         }
-        else if (_connection != nullptr) {
-            result = Core::ERROR_BAD_REQUEST;
+        else if (_connection == nullptr) {
+            result = Core::ERROR_INPROC;
         }
         else {
             // Oke we have an Connection so there is something to Hibernate..
@@ -702,6 +683,28 @@ namespace PluginHost
                 result = Core::ERROR_BAD_REQUEST;
             }
             else {
+#ifdef HIBERNATE_SUPPORT_ENABLED
+                Core::process_t parentPID = local->ParentPID();
+
+                SYSLOG(Logging::Notification, ("Hibernation of plugin [%s] process [%u]", Callsign().c_str(), parentPID));
+                result = HibernateProcess(timeout, parentPID, _administrator.Configuration().HibernateLocator().c_str(), _T(""), &_hibernateStorage);
+                if(result == HIBERNATE_ERROR_NONE)
+                {
+                    result = HibernateChildren(parentPID, timeout);
+                    if(result != Core::ERROR_NONE)
+                    {
+                        //wakeup Parent process to revert Hibernation
+                        SYSLOG(Logging::Notification, ("Wakeup plugin [%s] process [%u] on Hibernate error [%d]", Callsign().c_str(), parentPID, result));
+                        WakeupProcess(timeout, parentPID, _administrator.Configuration().HibernateLocator().c_str(), _T(""), &_hibernateStorage);
+                    }
+                }
+#else
+                result = Core::ERROR_NONE;
+#endif
+                if (result == Core::ERROR_NONE) {
+                    State(IShell::state::HIBERNATED);
+                    SYSLOG(Logging::Notification, ("Hibernated plugin [%s]:[%s]", ClassName().c_str(), Callsign().c_str()));
+                }
                 local->Release();
             }
         }
@@ -711,9 +714,111 @@ namespace PluginHost
 
     }
 
-    void Server::Service::Wakeup() {
+    uint32_t Server::Service::Wakeup(const uint32_t timeout VARIABLE_IS_NOT_USED) {
+        Core::hresult result = Core::ERROR_NONE;
+
+        Lock();
+
+        IShell::state currentState(State());
+
+        if (currentState != IShell::state::HIBERNATED) {
+            result = Core::ERROR_ILLEGAL_STATE;
+        }
+        else {
+            ASSERT(_connection != nullptr);
+
+            // Oke we have an Connection so there is something to Wakeup..
+            RPC::IMonitorableProcess* local = _connection->QueryInterface< RPC::IMonitorableProcess>();
+
+            if (local == nullptr) {
+                result = Core::ERROR_BAD_REQUEST;
+            }
+            else {
+#ifdef HIBERNATE_SUPPORT_ENABLED
+                Core::process_t parentPID = local->ParentPID();
+
+                // There is no recovery path while doing Wakeup, don't care about errors
+                WakeupChildren(parentPID, timeout);
+
+                SYSLOG(Logging::Notification, ("Wakeup of plugin [%s] process [%u]", Callsign().c_str(), parentPID));
+                result = WakeupProcess(timeout, parentPID, _administrator.Configuration().HibernateLocator().c_str(), _T(""), &_hibernateStorage);
+#else
+                result = Core::ERROR_NONE;
+#endif
+                if (result == Core::ERROR_NONE) {
+                    State(ACTIVATED);
+                    SYSLOG(Logging::Notification, ("Activated plugin from hibernation [%s]:[%s]", ClassName().c_str(), Callsign().c_str()));
+                }
+                local->Release();
+            }
+        }
+        Unlock();
+
+        return (result);
     }
 
+#ifdef HIBERNATE_SUPPORT_ENABLED
+    uint32_t Server::Service::HibernateChildren(const Core::process_t parentPID, const uint32_t timeout)
+    {
+        Core::hresult result = Core::ERROR_NONE;
+        Core::ProcessInfo::Iterator children(parentPID);
+        std::vector<Core::process_t> childrenPIDs;
+
+        if (children.Count() > 0) {
+
+            while (children.Next()) {
+                childrenPIDs.push_back(children.Current().Id());
+            }
+
+            for (auto iter = childrenPIDs.begin(); iter != childrenPIDs.end(); ++iter) {
+                SYSLOG(Logging::Notification, ("Hibernation of plugin [%s] child process [%u]", Callsign().c_str(), *iter));
+                result = HibernateProcess(timeout, *iter, _administrator.Configuration().HibernateLocator().c_str(), _T(""), &_hibernateStorage);
+                if (result == HIBERNATE_ERROR_NONE) {
+                    // Hibernate Children of this process
+                    result = HibernateChildren(*iter, timeout);
+                    if (result != HIBERNATE_ERROR_NONE) {
+                        // revert Hibernation of parent
+                        SYSLOG(Logging::Notification, ("Wakeup plugin [%s] process [%u] on Hibernate error [%d]", Callsign().c_str(), *iter, result));
+                        WakeupProcess(timeout, *iter, _administrator.Configuration().HibernateLocator().c_str(), _T(""), &_hibernateStorage);
+                    }
+                }
+
+                if (result != HIBERNATE_ERROR_NONE) {
+                    // revert previous Hibernations and break
+                    while (iter != childrenPIDs.begin()) {
+                        --iter;
+                        WakeupChildren(*iter, timeout);
+                        SYSLOG(Logging::Notification, ("Wakeup plugin [%s] process [%u] on Hibernate error [%d]", Callsign().c_str(), *iter, result));
+                        WakeupProcess(timeout, *iter, _administrator.Configuration().HibernateLocator().c_str(), _T(""), &_hibernateStorage);
+                    }
+                    break;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    uint32_t Server::Service::WakeupChildren(const Core::process_t parentPID, const uint32_t timeout)
+    {
+        Core::hresult result = Core::ERROR_NONE;
+        Core::ProcessInfo::Iterator children(parentPID);
+
+        if (children.Count() > 0) {
+
+            while (children.Next()) {
+                // Wakeup children of this process
+                // There is no recovery path while doing Wakeup, don't care about errors
+                WakeupChildren(children.Current().Id(), timeout);
+
+                SYSLOG(Logging::Notification, ("Wakeup of plugin [%s] child process [%u]", Callsign().c_str(), children.Current().Id()));
+                result = WakeupProcess(timeout, children.Current().Id(), _administrator.Configuration().HibernateLocator().c_str(), _T(""), &_hibernateStorage);
+            }
+        }
+
+        return result;
+    }
+#endif
 
     /* virtual */ uint32_t Server::Service::Submit(const uint32_t id, const Core::ProxyType<Core::JSON::IElement>& response)
     {
@@ -737,11 +842,11 @@ namespace PluginHost
         _administrator.Notification(forwarder);
     }
 
-    uint32_t Server::ServiceMap::FromLocator(const string& identifier, Core::ProxyType<PluginHost::Server::Service>& service, bool& serviceCall)
+    uint32_t Server::ServiceMap::FromLocator(const string& identifier, Core::ProxyType<Service>& service, bool& serviceCall)
     {
         uint32_t result = Core::ERROR_BAD_REQUEST;
-        const string& serviceHeader(_webbridgeConfig.WebPrefix());
-        const string& JSONRPCHeader(_webbridgeConfig.JSONRPCPrefix());
+        const string& serviceHeader(Configuration().WebPrefix());
+        const string& JSONRPCHeader(Configuration().JSONRPCPrefix());
 
         // Check the header (prefix part)
         if (identifier.compare(0, serviceHeader.length(), serviceHeader.c_str()) == 0) {
@@ -752,12 +857,18 @@ namespace PluginHost
                 service = _server.Controller();
                 result = Core::ERROR_NONE;
             } else {
+                Core::ProxyType<IShell> actualService;
                 size_t length;
                 uint32_t offset = static_cast<uint32_t>(serviceHeader.length()) + 1; /* skip the slash after */
 
                 const string callSign(identifier.substr(offset, ((length = identifier.find_first_of('/', offset)) == string::npos ? string::npos : length - offset)));
 
-                result = FromIdentifier(callSign, service);
+                if ( (result = FromIdentifier(callSign, actualService)) == Core::ERROR_NONE) {
+                    service = Core::ProxyType<Service>(actualService);
+                    if (service.IsValid() == false) {
+                        result = Core::ERROR_BAD_REQUEST;
+                    }
+                }
             }
         } else if (identifier.compare(0, JSONRPCHeader.length(), JSONRPCHeader.c_str()) == 0) {
 
@@ -767,12 +878,18 @@ namespace PluginHost
                 service = _server.Controller();
                 result = Core::ERROR_NONE;
             } else {
+                Core::ProxyType<IShell> actualService;
                 size_t length;
                 uint32_t offset = static_cast<uint32_t>(JSONRPCHeader.length()) + 1; /* skip the slash after */
 
                 const string callSign(identifier.substr(offset, ((length = identifier.find_first_of('/', offset)) == string::npos ? string::npos : length - offset)));
 
-                result = FromIdentifier(callSign, service);
+                if ((result = FromIdentifier(callSign, actualService)) == Core::ERROR_NONE) {
+                    service = Core::ProxyType<Service>(actualService);
+                    if (service.IsValid() == false) {
+                        result = Core::ERROR_BAD_REQUEST;
+                    }
+                }
             }
         }
 
@@ -813,7 +930,7 @@ PUSH_WARNING(DISABLE_WARNING_THIS_IN_MEMBER_INITIALIZER_LIST)
         : _dispatcher(configuration.StackSize())
         , _connections(*this, configuration.Binder(), configuration.IdleTime())
         , _config(configuration)
-        , _services(*this, _config)
+        , _services(*this)
         , _controller()
         , _factoriesImplementation()
     {
