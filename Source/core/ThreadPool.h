@@ -157,10 +157,12 @@ namespace Core {
             ProxyType<IDispatch> _job;
             uint64_t _time;
         };
-        typedef QueueType< MeasurableJob > MessageQueue;
+        using QueueElement = MeasurableJob;
         #else
-        typedef QueueType< ProxyType<IDispatch> > MessageQueue;
+        using QueueElement = ProxyType<IDispatch>;
         #endif
+
+        using MessageQueue = QueueType< QueueElement >;
 
     public:   
         template<typename IMPLEMENTATION>
@@ -562,15 +564,24 @@ POP_WARNING()
         {
             return (_queue.Length());
         }
-        void Info(const uint8_t length, Metadata* entries) const 
+        void Snapshot(const uint8_t length, Metadata* entries, std::vector<string>& jobs) const 
         {
             uint8_t count = 0;
             std::list<Executor>::const_iterator ptr = _units.cbegin();
+
+             // Make sure jobs do not move while we are creating a snapshot !!
+            _queue.Lock();
+
             while ((count < length) && (ptr != _units.cend())) { 
                 ptr->Info(entries[count]);
                 ptr++; 
                 count++; 
             }
+            _queue.Visit([&](const QueueElement& element) {
+                jobs.emplace_back(element->Identifier());
+                });
+
+            _queue.Unlock();
         }
         ::ThreadId Id(const uint8_t index) const
         {
