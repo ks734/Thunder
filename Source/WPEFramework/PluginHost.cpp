@@ -145,7 +145,13 @@ POP_WARNING()
             Stop();
             Wait(Core::Thread::STOPPED, Core::infinite);
         }
-
+        static void DumpMetadata() {
+            _adminLock.Lock();
+            if (_dispatcher != nullptr) {
+                _dispatcher->DumpMetadata();
+            }
+            _adminLock.Unlock();
+        }
         static void StartShutdown() {
             _adminLock.Lock();
             if ((_dispatcher != nullptr) && (_instance == nullptr)) {
