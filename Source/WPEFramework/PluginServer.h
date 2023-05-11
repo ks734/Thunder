@@ -2641,9 +2641,7 @@ POP_WARNING()
                     }
                     else {
                         Core::ProxyType<Core::JSONRPC::Message> message(_request->Body<Core::JSONRPC::Message>());
-                        std::stringstream ss;
-                        ss << "{ \"type\": \"JSONRPC\", \"id\": " << message->Id.Value() << " \"method\": \"" << message->Designator.Value() << " , \"parameters\": " << message->Parameters.Value() <<"}";
-                        identifier = ss.str();
+                        identifier = Core::Format(_T("{ \"type\": \"JSONRPC\", \"id\": %d, \"method\": \"%s\", \"parameters\": %s }"), message->Id.Value().c_str(), message->Designator.Value().c_str(), message->Parameters.Value().c_str());
                     }
                     return (identifier);
                 }
